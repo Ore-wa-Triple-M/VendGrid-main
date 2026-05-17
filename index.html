@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VendGrid - POS & Inventory Management System</title>
+    <meta name="description" content="VendGrid is a comprehensive Point of Sale (POS) and Inventory Management System designed for small to medium-sized retail businesses.">
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="assets/css/shared.css">
+    <link rel="stylesheet" href="assets/css/index.css">
+   
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/x-icon" href="assets/images/icons/favicon.ico">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary fixed-top">
+        <div class="container">
+            <a class="navbar-brand fw-bold" href="#home">
+                <i class="fas fa-cash-register me-2"></i>
+                VendGrid
+            </a>
+            
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="#home">Home</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#features">Features</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#pricing">Pricing</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#contact">Contact</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link btn btn-outline-light ms-2 px-3" href="login.html">
+                            <i class="fas fa-sign-in-alt me-1"></i>
+                            Login
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section id="home" class="hero-section">
+        <div class="container">
+            <div class="row align-items-center min-vh-100">
+                <div class="col-lg-6">
+                    <div class="hero-content">
+                        <h1 class="display-4 fw-bold text-primary mb-4">
+                            Streamline Your Retail Business
+                        </h1>
+                        <p class="lead text-muted mb-4">
+                            VendGrid is a comprehensive Point of Sale (POS) and Inventory Management System designed for small to medium-sized retail businesses. Manage sales, track inventory, and grow your business with confidence.
+                        </p>
+                        <div class="hero-buttons">
+                            <a href="login.html" class="btn btn-primary btn-lg me-3">
+                                <i class="fas fa-rocket me-2"></i>
+                                Get Started
+                            </a>
+                            <a href="#features" class="btn btn-outline-primary btn-lg">
+                                <i class="fas fa-play me-2"></i>
+                                Learn More
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-6">
+                    <div class="hero-image text-center">
+                        <div class="dashboard-preview">
+                            <div class="preview-window">
+                                <div class="preview-header">
+                                    <div class="preview-controls">
+                                        <span class="control red"></span>
+                                        <span class="control yellow"></span>
+                                        <span class="control green"></span>
+                                    </div>
+                                </div>
+                                <div class="preview-content">
+                                    <div class="preview-sidebar">
+                                        <div class="sidebar-item active">
+                                            <i class="fas fa-tachometer-alt"></i>
+                                            Dashboard
+                                        </div>
+                                        <div class="sidebar-item">
+                                            <i class="fas fa-cash-register"></i>
+                                            POS
+                                        </div>
+                                        <div class="sidebar-item">
+                                            <i class="fas fa-boxes"></i>
+                                            Inventory
+                                        </div>
+                                        <div class="sidebar-item">
+                                            <i class="fas fa-chart-bar"></i>
+                                            Reports
+                                        </div>
+                                    </div>
+                                    <div class="preview-main">
+                                        <div class="preview-cards">
+                                            <div class="preview-card">
+                                                <div class="card-icon">
+                                                    <i class="fas fa-dollar-sign"></i>
+                                                </div>
+                                                <div class="card-content">
+                                                    <h3>$12,450</h3>
+                                                    <p>Today's Sales</p>
+                                                </div>
+                                            </div>
+                                            <div class="preview-card">
+                                                <div class="card-icon">
+                                                    <i class="fas fa-shopping-cart"></i>
+                                                </div>
+                                                <div class="card-content">
+                                                    <h3>127</h3>
+                                                    <p>Transactions</p>
+                                                </div>
+                                            </div>
+                                            <div class="preview-card">
+                                                <div class="card-icon">
+                                                    <i class="fas fa-boxes"></i>
+                                                </div>
+                                                <div class="card-content">
+                                                    <h3>1,234</h3>
+                                                    <p>Products</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features" class="py-5 bg-light">
+        <div class="container">
+            <div class="row">
+                <div class="col-lg-8 mx-auto text-center mb-5">
+                    <h2 class="display-5 fw-bold text-primary mb-3">Powerful Features</h2>
+                    <p class="lead text-muted">
+                        Everything you need to manage your retail business efficiently
+                    </p>
+                </div>
+            </div>
+            
+            <div class="row g-4">
+                <!-- POS Features -->
+                <div class="col-lg-4 col-md-6">
+                    <div class="feature-card h-100">
+                        <div class="feature-icon">
+                            <i class="fas fa-cash-register"></i>
+                        </div>
+                        <h4>Point of Sale</h4>
+                        <p>Complete POS system with multiple payment methods, receipt generation, and transaction management.</p>
+                        <ul class="feature-list">
+                            <li><i class="fas fa-check text-success me-2"></i>Multiple payment methods</li>
+                            <li><i class="fas fa-check text-success me-2"></i>Receipt generation</li>
+                            <li><i class="fas fa-check text-success me-2"></i>Transaction history</li>
+                            <li><i class="fas fa-check text-success me-2"></i>Tax calculation</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <!-- Inventory Features -->
+                <div class="col-lg-4 col-md-6">
+                    <div class="feature-card h-100">
+                        <div class="feature-icon">
+                            <i class="fas fa-boxes"></i>
+                        </div>
+                        <h4>Inventory Management</h4>
+                        <p>Comprehensive inventory tracking with real-time stock levels and automated alerts.</p>
+                        <ul class="feature-list">
+                            <li><i class="fas fa-check text-success me-2"></i>Real-time stock tracking</li>
+                            <li><i class="fas fa-check text-success me-2"></i>Low stock alerts</li>
+                            <li><i class="fas fa-check text-success me-2"></i>Purchase orders</li>
+                            <li><i class="fas fa-check text-success me-2"></i>Supplier management</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <!-- Reporting Features -->
+                <div class="col-lg-4 col-md-6">
+                    <div class="feature-card h-100">
+                        <div class="feature-icon">
+                            <i class="fas fa-chart-bar"></i>
+                        </div>
+                        <h4>Analytics & Reports</h4>
+                        <p>Detailed analytics and reporting to help you make informed business decisions.</p>
+                        <ul class="feature-list">
+                            <li><i class="fas fa-check text-success me-2"></i>Sales analytics</li>
+                            <li><i class="fas fa-check text-success me-2"></i>Inventory reports</li>
+                            <li><i class="fas fa-check text-success me-2"></i>Performance metrics</li>
+                            <li><i class="fas fa-check text-success me-2"></i>Export capabilities</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <!-- User Management -->
+                <div class="col-lg-4 col-md-6">
+                    <div class="feature-card h-100">
+                        <div class="feature-icon">
+                            <i class="fas fa-users"></i>
+                        </div>
+                        <h4>User Management</h4>
+                        <p>Role-based access control with different permission levels for your team.</p>
+                        <ul class="feature-list">
+                            <li><i class="fas fa-check text-success me-2"></i>Role-based access</li>
+                            <li><i class="fas fa-check text-success me-2"></i>User activity tracking</li>
+                            <li><i class="fas fa-check text-success me-2"></i>Secure authentication</li>
+                            <li><i class="fas fa-check text-success me-2"></i>Session management</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <!-- Integration -->
+                <div class="col-lg-4 col-md-6">
+                    <div class="feature-card h-100">
+                        <div class="feature-icon">
+                            <i class="fas fa-plug"></i>
+                        </div>
+                        <h4>Integrations</h4>
+                        <p>Seamless integration with payment gateways, hardware, and external services.</p>
+                        <ul class="feature-list">
+                            <li><i class="fas fa-check text-success me-2"></i>Payment gateways</li>
+                            <li><i class="fas fa-check text-success me-2"></i>Barcode scanners</li>
+                            <li><i class="fas fa-check text-success me-2"></i>Receipt printers</li>
+                            <li><i class="fas fa-check text-success me-2"></i>Email/SMS services</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <!-- Security -->
+                <div class="col-lg-4 col-md-6">
+                    <div class="feature-card h-100">
+                        <div class="feature-icon">
+                            <i class="fas fa-shield-alt"></i>
+                        </div>
+                        <h4>Security</h4>
+                        <p>Enterprise-grade security with data encryption and audit logging.</p>
+                        <ul class="feature-list">
+                            <li><i class="fas fa-check text-success me-2"></i>Data encryption</li>
+                            <li><i class="fas fa-check text-success me-2"></i>Audit logging</li>
+                            <li><i class="fas fa-check text-success me-2"></i>Secure authentication</li>
+                            <li><i class="fas fa-check text-success me-2"></i>Backup & recovery</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Pricing Section -->
+    <section id="pricing" class="py-5">
+        <div class="container">
+            <div class="row">
+                <div class="col-lg-8 mx-auto text-center mb-5">
+                    <h2 class="display-5 fw-bold text-primary mb-3">Simple Pricing</h2>
+                    <p class="lead text-muted">
+                        Choose the plan that fits your business needs
+                    </p>
+                </div>
+            </div>
+            
+            <div class="row g-4 justify-content-center">
+                <!-- Starter Plan -->
+                <div class="col-lg-4 col-md-6">
+                    <div class="pricing-card h-100">
+                        <div class="pricing-header">
+                            <h4>Starter</h4>
+                            <div class="price">
+                                <span class="currency">$</span>
+                                <span class="amount">29</span>
+                                <span class="period">/month</span>
+                            </div>
+                        </div>
+                        <div class="pricing-features">
+                            <ul class="list-unstyled">
+                                <li><i class="fas fa-check text-success me-2"></i>Basic POS functionality</li>
+                                <li><i class="fas fa-check text-success me-2"></i>Up to 100 products</li>
+                                <li><i class="fas fa-check text-success me-2"></i>Basic inventory tracking</li>
+                                <li><i class="fas fa-check text-success me-2"></i>Email support</li>
+                                <li><i class="fas fa-check text-success me-2"></i>Basic reporting</li>
+                            </ul>
+                        </div>
+                        <div class="pricing-footer">
+                            <a href="login.html" class="btn btn-outline-primary w-100">Get Started</a>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Professional Plan -->
+                <div class="col-lg-4 col-md-6">
+                    <div class="pricing-card h-100 featured">
+                        <div class="pricing-badge">Most Popular</div>
+                        <div class="pricing-header">
+                            <h4>Professional</h4>
+                            <div class="price">
+                                <span class="currency">$</span>
+                                <span class="amount">59</span>
+                                <span class="period">/month</span>
+                            </div>
+                        </div>
+                        <div class="pricing-features">
+                            <ul class="list-unstyled">
+                                <li><i class="fas fa-check text-success me-2"></i>Full POS functionality</li>
+                                <li><i class="fas fa-check text-success me-2"></i>Unlimited products</li>
+                                <li><i class="fas fa-check text-success me-2"></i>Advanced inventory management</li>
+                                <li><i class="fas fa-check text-success me-2"></i>Priority support</li>
+                                <li><i class="fas fa-check text-success me-2"></i>Advanced reporting</li>
+                                <li><i class="fas fa-check text-success me-2"></i>Payment gateway integration</li>
+                            </ul>
+                        </div>
+                        <div class="pricing-footer">
+                            <a href="login.html" class="btn btn-primary w-100">Get Started</a>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Enterprise Plan -->
+                <div class="col-lg-4 col-md-6">
+                    <div class="pricing-card h-100">
+                        <div class="pricing-header">
+                            <h4>Enterprise</h4>
+                            <div class="price">
+                                <span class="currency">$</span>
+                                <span class="amount">99</span>
+                                <span class="period">/month</span>
+                            </div>
+                        </div>
+                        <div class="pricing-features">
+                            <ul class="list-unstyled">
+                                <li><i class="fas fa-check text-success me-2"></i>Everything in Professional</li>
+                                <li><i class="fas fa-check text-success me-2"></i>Multi-location support</li>
+                                <li><i class="fas fa-check text-success me-2"></i>Custom integrations</li>
+                                <li><i class="fas fa-check text-success me-2"></i>24/7 support</li>
+                                <li><i class="fas fa-check text-success me-2"></i>Custom reporting</li>
+                                <li><i class="fas fa-check text-success me-2"></i>API access</li>
+                            </ul>
+                        </div>
+                        <div class="pricing-footer">
+                            <a href="login.html" class="btn btn-outline-primary w-100">Contact Sales</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Contact Section -->
+    <section id="contact" class="py-5 bg-light">
+        <div class="container">
+            <div class="row">
+                <div class="col-lg-8 mx-auto text-center mb-5">
+                    <h2 class="display-5 fw-bold text-primary mb-3">Get In Touch</h2>
+                    <p class="lead text-muted">
+                        Ready to transform your retail business? Contact us today!
+                    </p>
+                </div>
+            </div>
+            
+            <div class="row g-4">
+                <div class="col-lg-4">
+                    <div class="contact-info text-center">
+                        <div class="contact-icon">
+                            <i class="fas fa-envelope"></i>
+                        </div>
+                        <h5>Email</h5>
+                        <p>support@vendgrid.com</p>
+                    </div>
+                </div>
+                
+                <div class="col-lg-4">
+                    <div class="contact-info text-center">
+                        <div class="contact-icon">
+                            <i class="fas fa-phone"></i>
+                        </div>
+                        <h5>Phone</h5>
+                        <p>+1 (555) 123-4567</p>
+                    </div>
+                </div>
+                
+                <div class="col-lg-4">
+                    <div class="contact-info text-center">
+                        <div class="contact-icon">
+                            <i class="fas fa-map-marker-alt"></i>
+                        </div>
+                        <h5>Address</h5>
+                        <p>123 Business St, Suite 100<br>City, State 12345</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-dark text-light py-4">
+        <div class="container">
+            <div class="row">
+                <div class="col-lg-6">
+                    <div class="footer-brand mb-3">
+                        <h5 class="fw-bold">
+                            <i class="fas fa-cash-register me-2"></i>
+                            VendGrid
+                        </h5>
+                        <p class="text-muted">
+                            Empowering retail businesses with modern POS and inventory management solutions.
+                        </p>
+                    </div>
+                </div>
+                
+                <div class="col-lg-6">
+                    <div class="footer-links text-lg-end">
+                        <a href="#home" class="text-light me-3">Home</a>
+                        <a href="#features" class="text-light me-3">Features</a>
+                        <a href="#pricing" class="text-light me-3">Pricing</a>
+                        <a href="#contact" class="text-light me-3">Contact</a>
+                        <a href="login.html" class="text-light">Login</a>
+                    </div>
+                    
+                    <div class="footer-social mt-3 text-lg-end">
+                        <a href="#" class="text-light me-3">
+                            <i class="fab fa-facebook"></i>
+                        </a>
+                        <a href="#" class="text-light me-3">
+                            <i class="fab fa-twitter"></i>
+                        </a>
+                        <a href="#" class="text-light me-3">
+                            <i class="fab fa-linkedin"></i>
+                        </a>
+                        <a href="#" class="text-light">
+                            <i class="fab fa-instagram"></i>
+                        </a>
+                    </div>
+                </div>
+            </div>
+            
+            <hr class="my-4">
+            
+            <div class="row">
+                <div class="col-lg-6">
+                    <p class="text-muted mb-0">
+                        &copy; 2026 VendGrid. All rights reserved.
+                    </p>
+                </div>
+                <div class="col-lg-6 text-lg-end">
+                    <a href="#" class="text-muted me-3">Privacy Policy</a>
+                    <a href="#" class="text-muted">Terms of Service</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- Custom JS -->
+    <script src="assets/js/main.js"></script>
+    
+</body>
+</html>

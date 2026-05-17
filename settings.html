@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings - VendGrid</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="assets/css/shared.css">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary fixed-top">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="dashboard.html"><i class="fas fa-cash-register me-2"></i>VendGrid</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">
+                            <i class="fas fa-user-circle me-1"></i><span id="userName">User</span>
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item" href="#" onclick="signOut()"><i class="fas fa-sign-out-alt me-2"></i>Logout</a></li>
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="sidebar">
+        <a href="dashboard.html" class="sidebar-item" data-tooltip="Dashboard">
+            <i class="fas fa-tachometer-alt"></i><span>Dashboard</span>
+        </a>
+        <a href="pos.html" class="sidebar-item" data-tooltip="POS Terminal">
+            <i class="fas fa-cash-register"></i><span>POS Terminal</span>
+        </a>
+        <a href="inventory.html" class="sidebar-item" data-tooltip="Inventory">
+            <i class="fas fa-boxes"></i><span>Inventory</span>
+        </a>
+        <a href="reports.html" class="sidebar-item" data-tooltip="Reports">
+            <i class="fas fa-chart-bar"></i><span>Reports</span>
+        </a>
+        <a href="users.html" class="sidebar-item " data-tooltip="Users">
+            <i class="fas fa-users"></i><span>Users</span>
+        </a>
+        <a href="settings.html" class="sidebar-item active" data-tooltip="Settings">
+            <i class="fas fa-cog"></i><span>Settings</span>
+        </a>
+    </div>
+
+    <div class="main-content">
+        <h1 class="mb-4">System Settings</h1>
+        <div class="card">
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6 mb-3"><label class="form-label">Business Name</label><input type="text" id="businessName" class="form-control"></div>
+                    <div class="col-md-6 mb-3"><label class="form-label">Business Email</label><input type="email" id="businessEmail" class="form-control"></div>
+                    <div class="col-12 mb-3"><label class="form-label">Address</label><textarea id="businessAddress" class="form-control" rows="2"></textarea></div>
+                    <div class="col-md-6 mb-3"><label class="form-label">Phone</label><input type="text" id="businessPhone" class="form-control"></div>
+                    <div class="col-md-6 mb-3"><label class="form-label">Currency</label><select id="currency" class="form-select"><option value="KES">KES - Kenyan Shilling</option><option value="USD">USD - US Dollar</option></select></div>
+                    <div class="col-md-6 mb-3"><label class="form-label">VAT Rate (%)</label><input type="number" id="vatRate" class="form-control" step="0.1"></div>
+                </div>
+                <button class="btn btn-primary" onclick="saveSettings()"><i class="fas fa-save me-2"></i>Save Settings</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="assets/js/supabase.js"></script>
+    <script src="assets/js/app.js"></script>
+    <script src="assets/js/settings.js"></script>
+    <script src="assets/js/sidebar.js"></script>
+</body>
+</html>

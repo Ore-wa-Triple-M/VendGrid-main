@@ -1,0 +1,149 @@
+/* dashboard.css – VendGrid Dashboard Widgets */
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+    padding: 20px 0;
+}
+.page-title {
+    font-size: 2rem;
+    font-weight: 600;
+    color: #343a40;
+}
+.page-subtitle {
+    color: #6c757d;
+}
+
+.dashboard-widget {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+    border: 1px solid #e9ecef;
+    transition: all 0.3s ease;
+    height: 100%;
+}
+.dashboard-widget:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+}
+.widget-header {
+    padding: 20px 20px 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+}
+.widget-header h3 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: #343a40;
+}
+.widget-content {
+    padding: 20px;
+}
+.widget-footer {
+    padding: 0 20px 20px;
+}
+.widget-link {
+    color: #007bff;
+    text-decoration: none;
+    font-weight: 500;
+}
+.widget-icon {
+    width: 50px;
+    height: 50px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    color: white;
+    margin-bottom: 15px;
+}
+.sales-widget .widget-icon { background: linear-gradient(135deg, #28a745, #20c997); }
+.transactions-widget .widget-icon { background: linear-gradient(135deg, #007bff, #6610f2); }
+.inventory-widget .widget-icon { background: linear-gradient(135deg, #ffc107, #fd7e14); }
+.low-stock-widget .widget-icon { background: linear-gradient(135deg, #dc3545, #e83e8c); }
+
+.metric-value {
+    display: flex;
+    align-items: baseline;
+    margin-bottom: 10px;
+}
+.currency {
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: #6c757d;
+    margin-right: 5px;
+}
+.amount {
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: #343a40;
+}
+.metric-change {
+    display: flex;
+    align-items: center;
+    font-size: 0.9rem;
+}
+.metric-change.positive { color: #28a745; }
+.metric-change.negative { color: #dc3545; }
+
+.quick-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+.quick-action {
+    display: flex;
+    align-items: center;
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    text-decoration: none;
+    color: #343a40;
+    transition: all 0.3s ease;
+}
+.quick-action:hover {
+    background: #007bff;
+    color: white;
+    transform: translateX(5px);
+}
+.quick-action .action-icon {
+    width: 40px;
+    height: 40px;
+    background: #007bff;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    margin-right: 15px;
+}
+.quick-action:hover .action-icon {
+    background: white;
+    color: #007bff;
+}
+
+.recent-transactions-widget .table th {
+    border-top: none;
+    font-weight: 600;
+    color: #343a40;
+}
+/* dashboard.css — REMOVE these lines entirely */
+.pos-container { display: flex; height: calc(100vh - 56px); margin-top: 56px; margin-left:250px; }
+.products-panel { flex: 1; padding: 20px; overflow-y: auto; }
+.cart-panel { width: 380px; background: white; box-shadow: -2px 0 10px rgba(0,0,0,0.05); display: flex; flex-direction: column; }
+.product-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 15px; }
+.product-card { background: white; border-radius: 10px; padding: 15px; text-align: center; cursor: pointer; transition: all 0.2s; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+.product-card:hover { transform: translateY(-3px); box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
+.product-card.out-of-stock { opacity: 0.5; cursor: not-allowed; }
+.product-name { font-weight: 600; margin: 10px 0 5px; }
+.product-price { color: #667eea; font-weight: 700; }
+.cart-item { display: flex; align-items: center; gap: 10px; padding: 10px; border-bottom: 1px solid #eee; }
+.cart-item-name { flex: 1; }
+.quantity-btn { width: 28px; height: 28px; border-radius: 50%; border: 1px solid #ddd; background: white; }
+.cart-summary { padding: 15px; border-top: 2px solid #eee; background: #f8f9fa; }
+.summary-row { display: flex; justify-content: space-between; margin-bottom: 10px; }
+.total-row { font-size: 1.2rem; font-weight: 700; color: #667eea; border-top: 1px solid #ddd; padding-top: 10px; margin-top: 10px; }
+@media (max-width: 768px) { .cart-panel { width: 100%; position: fixed; bottom: 0; left: 0; max-height: 50vh; } .products-panel { margin-bottom: 50vh; } }

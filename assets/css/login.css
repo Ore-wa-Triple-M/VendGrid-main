@@ -1,0 +1,97 @@
+/* login.css – VendGrid Login Page */
+.login-page {
+    background: linear-gradient(135deg, #2c3e50 0%, #34495e 50%, #3498db 100%);
+    min-height: 100vh;
+    position: relative;
+    overflow: hidden;
+}
+
+.login-container {
+    position: relative;
+    z-index: 2;
+}
+
+.login-card {
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(10px);
+    border-radius: 20px;
+    padding: 40px;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+    border: 1px solid rgba(255,255,255,0.2);
+}
+
+.login-logo {
+    display: inline-flex;
+    align-items: center;
+    text-decoration: none;
+    color: #007bff;
+    font-size: 2rem;
+    font-weight: 700;
+}
+
+.login-title {
+    font-size: 2rem;
+    font-weight: 600;
+    color: #343a40;
+}
+
+.login-subtitle {
+    color: #6c757d;
+}
+
+.password-input-group {
+    position: relative;
+}
+.password-toggle {
+    position: absolute;
+    right: 15px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: #6c757d;
+}
+.login-btn {
+    background: linear-gradient(135deg, #007bff, #0056b3);
+    border-radius: 10px;
+    padding: 12px;
+    font-weight: 600;
+}
+.login-divider {
+    margin: 20px 0;
+    position: relative;
+    text-align: center;
+}
+.login-divider::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: #e9ecef;
+}
+.login-divider span {
+    background: rgba(255,255,255,0.95);
+    padding: 0 15px;
+    color: #6c757d;
+}
+
+.login-background {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+}
+.bg-shape {
+    position: absolute;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.1);
+    animation: float 6s ease-in-out infinite;
+}
+.shape-1 { width: 200px; height: 200px; top: 10%; left: 10%; }
+.shape-2 { width: 150px; height: 150px; top: 60%; right: 10%; animation-delay: 2s; }
+.shape-3 { width: 100px; height: 100px; bottom: 20%; left: 20%; animation-delay: 4s; }
+@keyframes float {
+    0%,100% { transform: translateY(0); }
+    50% { transform: translateY(-20px); }
+}

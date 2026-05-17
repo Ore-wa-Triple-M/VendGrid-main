@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - VendGrid</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="assets/css/shared.css">
+<link rel="stylesheet" href="assets/css/dashboard.css">
+</head>
+<body class="dashboard-page">
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary fixed-top">
+        <div class="container-fluid">
+            <a class="navbar-brand fw-bold" href="dashboard.html"><i class="fas fa-cash-register me-2"></i>VendGrid</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">
+                            <i class="fas fa-user-circle me-1"></i><span id="userName">User</span>
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item" href="#" onclick="signOut()"><i class="fas fa-sign-out-alt me-2"></i>Logout</a></li>
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Sidebar -->
+    <div class="sidebar">
+        <a href="dashboard.html" class="sidebar-item active" data-tooltip="Dashboard">
+            <i class="fas fa-tachometer-alt"></i><span>Dashboard</span>
+        </a>
+        <a href="pos.html" class="sidebar-item" data-tooltip="POS Terminal">
+            <i class="fas fa-cash-register"></i><span>POS Terminal</span>
+        </a>
+        <a href="inventory.html" class="sidebar-item" data-tooltip="Inventory">
+            <i class="fas fa-boxes"></i><span>Inventory</span>
+        </a>
+        <a href="reports.html" class="sidebar-item" data-tooltip="Reports">
+            <i class="fas fa-chart-bar"></i><span>Reports</span>
+        </a>
+        <a href="users.html" class="sidebar-item " data-tooltip="Users">
+            <i class="fas fa-users"></i><span>Users</span>
+        </a>
+        <a href="settings.html" class="sidebar-item" data-tooltip="Settings">
+            <i class="fas fa-cog"></i><span>Settings</span>
+        </a>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main-content">
+        <div class="container-fluid">
+            <div class="row">
+                <div class="col-12">
+                    <div class="page-header">
+                        <h1 class="page-title">Dashboard</h1>
+                        <p class="page-subtitle">Welcome back! Here's what's happening with your business today.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Stats Widgets -->
+            <div class="row g-4 mb-4">
+                <div class="col-lg-3 col-md-6">
+                    <div class="dashboard-widget sales-widget">
+                        <div class="widget-header">
+                            <div class="widget-icon">
+                                <i class="fas fa-dollar-sign"></i>
+                            </div><div class="widget-title">
+                                <h3>Today's Sales</h3>
+                                <p class="text-muted">Total revenue</p>
+                            </div></div>
+                        <div class="widget-content"><div class="metric-value"><span class="currency"></span><span class="amount" id="todaySales">0</span></div><div class="metric-change" id="salesChange"></div></div>
+                        <div class="widget-footer"><a href="reports.html" class="widget-link">View Details</a></div>
+                    </div> 
+                </div>
+                <div class="col-lg-3 col-md-6">
+                    <div class="dashboard-widget transactions-widget">
+                        <div class="widget-header"><div class="widget-icon"><i class="fas fa-shopping-cart"></i></div><div class="widget-title"><h3>Transactions</h3><p class="text-muted">Total orders</p></div></div>
+                        <div class="widget-content"><div class="metric-value"><span class="amount" id="todayTransactions">0</span></div><div class="metric-change" id="transactionsChange"></div></div>
+                        <div class="widget-footer"><a href="pos.html" class="widget-link">New Sale</a></div>
+                    </div>
+                </div>
+                <div class="col-lg-3 col-md-6">
+                    <div class="dashboard-widget inventory-widget">
+                        <div class="widget-header"><div class="widget-icon"><i class="fas fa-boxes"></i></div><div class="widget-title"><h3>Products</h3><p class="text-muted">Total items</p></div></div>
+                        <div class="widget-content"><div class="metric-value"><span class="amount" id="totalProducts">0</span></div></div>
+                        <div class="widget-footer"><a href="inventory.html" class="widget-link">Manage</a></div>
+                    </div>
+                </div>
+                <div class="col-lg-3 col-md-6">
+                    <div class="dashboard-widget low-stock-widget">
+                        <div class="widget-header"><div class="widget-icon"><i class="fas fa-exclamation-triangle"></i></div><div class="widget-title"><h3>Low Stock</h3><p class="text-muted">Items to reorder</p></div></div>
+                        <div class="widget-content"><div class="metric-value"><span class="amount" id="lowStockItems">0</span></div></div>
+                        <div class="widget-footer"><a href="inventory.html?filter=low-stock" class="widget-link">View Items</a></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts & Quick Actions -->
+            <div class="row g-4">
+                <div class="col-lg-8">
+                    <div class="dashboard-widget chart-widget">
+                        <div class="widget-header"><h3>Sales Trend (Last 7 Days)</h3></div>
+                        <div class="widget-content"><canvas id="salesChart" height="280"></canvas></div>
+                    </div>
+                </div>
+                <div class="col-lg-4">
+                    <div class="dashboard-widget quick-actions-widget">
+                        <div class="widget-header"><h3>Quick Actions</h3></div>
+                        <div class="widget-content">
+                            <div class="quick-actions">
+                                <a href="pos.html" class="quick-action"><div class="action-icon"><i class="fas fa-cash-register"></i></div><div class="action-content"><h4>New Sale</h4><p>Start a new transaction</p></div></a>
+                                <a href="inventory.html?action=add" class="quick-action"><div class="action-icon"><i class="fas fa-plus"></i></div><div class="action-content"><h4>Add Product</h4><p>Add new inventory item</p></div></a>
+                                <a href="reports.html" class="quick-action"><div class="action-icon"><i class="fas fa-chart-bar"></i></div><div class="action-content"><h4>View Reports</h4><p>Generate analytics</p></div></a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Transactions -->
+            <div class="row g-4 mt-2">
+                <div class="col-lg-12">
+                    <div class="dashboard-widget recent-transactions-widget">
+                        <div class="widget-header"><h3>Recent Transactions</h3><a href="pos.html" class="btn btn-sm btn-outline-primary">View All</a></div>
+                        <div class="widget-content">
+                            <div class="table-responsive">
+                                <table class="table table-hover">
+                                    <thead><tr><th>Transaction #</th><th>Amount</th><th>Method</th><th>Date</th></tr></thead>
+                                    <tbody id="recentTransactions"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="assets/js/supabase.js"></script>
+    <script src="assets/js/app.js"></script>
+    <script src="assets/js/dashboard.js"></script>
+    <script src="assets/js/sidebar.js"></script>
+</body>
+</html>

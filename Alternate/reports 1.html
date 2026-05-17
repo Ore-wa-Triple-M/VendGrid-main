@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reports - VendGrid</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="main.css">
+</head>
+<body class="dashboard-page">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary fixed-top">
+        <div class="container-fluid">
+            <a class="navbar-brand fw-bold" href="dashboard.html"><i class="fas fa-cash-register me-2"></i>VendGrid</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"><span class="navbar-toggler-icon"></span></button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item"><a class="nav-link" href="dashboard.html"><i class="fas fa-tachometer-alt me-1"></i>Dashboard</a></li>
+                    <li class="nav-item"><a class="nav-link" href="pos.html"><i class="fas fa-cash-register me-1"></i>POS</a></li>
+                    <li class="nav-item"><a class="nav-link" href="inventory.html"><i class="fas fa-boxes me-1"></i>Inventory</a></li>
+                    <li class="nav-item"><a class="nav-link active" href="reports.html"><i class="fas fa-chart-bar me-1"></i>Reports</a></li>
+                    <li class="nav-item"><a class="nav-link" href="users.html"><i class="fas fa-users me-1"></i>Users</a></li>
+                    <li class="nav-item"><a class="nav-link" href="settings.html"><i class="fas fa-cog me-1"></i>Settings</a></li>
+                </ul>
+                <ul class="navbar-nav">
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">
+                            <i class="fas fa-user-circle me-1"></i><span id="userName">User</span>
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item" href="#" onclick="rptLogout()"><i class="fas fa-sign-out-alt me-2"></i>Logout</a></li>
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="main-content">
+        <div class="container-fluid">
+            <div class="page-header d-flex justify-content-between align-items-start">
+                <div>
+                    <h1 class="page-title">Reports &amp; Analytics</h1>
+                    <p class="page-subtitle">Business insights and sales performance</p>
+                </div>
+                <div class="d-flex gap-2 align-items-center mt-2">
+                    <select id="periodSelect" class="form-select form-select-sm" style="width:auto" onchange="RPT.load()">
+                        <option value="7d">Last 7 days</option>
+                        <option value="30d" selected>Last 30 days</option>
+                        <option value="90d">Last 90 days</option>
+                    </select>
+                    <button class="btn btn-sm btn-outline-primary" onclick="RPT.exportCSV()">
+                        <i class="fas fa-download me-1"></i>Export
+                    </button>
+                </div>
+            </div>
+
+            <!-- KPI Cards -->
+            <div class="row g-4 mb-4">
+                <div class="col-md-3">
+                    <div class="dashboard-widget sales-widget">
+                        <div class="widget-header">
+                            <div class="widget-icon"><i class="fas fa-dollar-sign"></i></div>
+                            <div class="widget-title"><h3>Total Revenue</h3><p class="text-muted">Period total</p></div>
+                        </div>
+                        <div class="widget-content">
+                            <div class="metric-value"><span class="amount" id="rptRevenue">—</span></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="dashboard-widget transactions-widget">
+                        <div class="widget-header">
+                            <div class="widget-icon"><i class="fas fa-receipt"></i></div>
+                            <div class="widget-title"><h3>Total Sales</h3><p class="text-muted">Completed transactions</p></div>
+                        </div>
+                        <div class="widget-content">
+                            <div class="metric-value"><span class="amount" id="rptSalesCount">—</span></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="dashboard-widget inventory-widget">
+                        <div class="widget-header">
+                            <div class="widget-icon"><i class="fas fa-chart-line"></i></div>
+                            <div class="widget-title"><h3>Avg. Sale Value</h3><p class="text-muted">Per transaction</p></div>
+                        </div>
+                        <div class="widget-content">
+                            <div class="metric-value"><span class="amount" id="rptAvgSale">—</span></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="dashboard-widget low-stock-widget">
+                        <div class="widget-header">
+                            <div class="widget-icon"><i class="fas fa-percent"></i></div>
+                            <div class="widget-title"><h3>Total Tax (VAT)</h3><p class="text-muted">Collected</p></div>
+                        </div>
+                        <div class="widget-content">
+                            <div class="metric-value"><span class="amount" id="rptTax">—</span></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts Row -->
+            <div class="row g-4 mb-4">
+                <div class="col-lg-8">
+                    <div class="dashboard-widget chart-widget">
+                        <div class="widget-header"><h3>Revenue Over Time</h3></div>
+                        <div class="widget-content">
+                            <canvas id="revenueChart" height="260"></canvas>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-4">
+                    <div class="dashboard-widget chart-widget">
+                        <div class="widget-header"><h3>Payment Methods</h3></div>
+                        <div class="widget-content">
+                            <canvas id="paymentChart" height="260"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sales Table -->
+            <div class="row g-4">
+                <div class="col-12">
+                    <div class="dashboard-widget">
+                        <div class="widget-header">
+                            <h3>All Transactions</h3>
+                            <input type="text" id="salesSearch" class="form-control form-control-sm" style="width:220px" placeholder="Search…" oninput="RPT.filterSales()">
+                        </div>
+                        <div class="widget-content p-0">
+                            <div class="table-responsive">
+                                <table class="table table-hover mb-0">
+                                    <thead class="table-light"><tr>
+                                        <th>Txn #</th><th>Date</th><th>Subtotal</th><th>Tax</th><th>Discount</th><th>Total</th><th>Method</th><th>Status</th>
+                                    </tr></thead>
+                                    <tbody id="salesTable"><tr><td colspan="8" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="main.js"></script>
+    <script src="assets/js/components/auth.js"></script>
+    <script>
+    const RPT = (() => {
+        let allSales     = [];
+        let revenueChart = null;
+        let paymentChart = null;
+
+        const token   = () => localStorage.getItem('token');
+        const headers = () => ({ 'Content-Type': 'application/json', 'Authorization': `Bearer ${token()}` });
+        const api     = async (path) => {
+            const res = await fetch('/api' + path, { headers: headers() });
+            if (res.status === 401) { localStorage.clear(); window.location.href = 'login.html'; }
+            return res.json();
+        };
+        const fmt = (n) => 'KES ' + parseFloat(n || 0).toFixed(2);
+
+        async function init() {
+            if (!window.AuthManager.isAuthenticated()) { window.location.href = 'login.html'; return; }
+            const user   = window.AuthManager.getCurrentUser();
+            const nameEl = document.getElementById('userName');
+            if (nameEl) nameEl.textContent = user.first_name ? `${user.first_name} ${user.last_name}` : user.username;
+            await load();
+        }
+
+        async function load() {
+            const period = document.getElementById('periodSelect').value;
+            const days   = period === '90d' ? 90 : period === '30d' ? 30 : 7;
+            const fromDate = new Date();
+            fromDate.setDate(fromDate.getDate() - days);
+
+            const [salesData, chartData] = await Promise.all([
+                api('/pos/sales'),
+                api(`/dashboard/sales-chart?period=${period}`)
+            ]);
+
+            allSales = (salesData.data || []).filter(s => {
+                const d = new Date(s.sale_date || s.created_at);
+                return d >= fromDate;
+            });
+
+            renderKPIs();
+            renderRevenueChart(chartData);
+            renderPaymentChart();
+            renderSalesTable(allSales);
+        }
+
+        function renderKPIs() {
+            const completed = allSales.filter(s => s.payment_status === 'completed');
+            const revenue   = completed.reduce((s, t) => s + parseFloat(t.total_amount  || 0), 0);
+            const tax       = completed.reduce((s, t) => s + parseFloat(t.tax_amount    || 0), 0);
+            const avg       = completed.length ? revenue / completed.length : 0;
+
+            document.getElementById('rptRevenue').textContent   = fmt(revenue);
+            document.getElementById('rptSalesCount').textContent = completed.length;
+            document.getElementById('rptAvgSale').textContent   = fmt(avg);
+            document.getElementById('rptTax').textContent       = fmt(tax);
+        }
+
+        function renderRevenueChart(chartData) {
+            const ctx = document.getElementById('revenueChart');
+            if (!ctx) return;
+            if (revenueChart) { revenueChart.destroy(); }
+            revenueChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: chartData.labels || [],
+                    datasets: [{
+                        label: 'Revenue (KES)',
+                        data:  chartData.data  || [],
+                        backgroundColor: 'rgba(13,110,253,0.7)',
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: { y: { beginAtZero: true, ticks: { callback: v => 'KES ' + v.toLocaleString() } } }
+                }
+            });
+        }
+
+        function renderPaymentChart() {
+            const ctx = document.getElementById('paymentChart');
+            if (!ctx) return;
+            if (paymentChart) { paymentChart.destroy(); }
+
+            const methodCounts = {};
+            allSales.forEach(s => {
+                const m = s.payment_method || 'unknown';
+                methodCounts[m] = (methodCounts[m] || 0) + 1;
+            });
+            const labels = Object.keys(methodCounts);
+            const data   = Object.values(methodCounts);
+            const colors = ['#0d6efd','#198754','#ffc107','#dc3545','#6c757d'];
+
+            paymentChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: { labels, datasets: [{ data, backgroundColor: colors.slice(0, labels.length) }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+            });
+        }
+
+        function filterSales() {
+            const q = document.getElementById('salesSearch').value.toLowerCase();
+            renderSalesTable(allSales.filter(s =>
+                (s.transaction_number || '').toLowerCase().includes(q) ||
+                (s.payment_method || '').toLowerCase().includes(q) ||
+                (s.payment_status || '').toLowerCase().includes(q)
+            ));
+        }
+
+        function renderSalesTable(list) {
+            const tbody = document.getElementById('salesTable');
+            if (!list.length) { tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">No transactions in this period</td></tr>'; return; }
+            const statusClass = { completed:'success', pending:'warning', failed:'danger', refunded:'secondary' };
+            tbody.innerHTML = list.map(s => `
+                <tr>
+                    <td><strong>${s.transaction_number}</strong></td>
+                    <td>${new Date(s.sale_date || s.created_at).toLocaleDateString()}</td>
+                    <td>${fmt(s.subtotal)}</td>
+                    <td>${fmt(s.tax_amount)}</td>
+                    <td>${fmt(s.discount_amount)}</td>
+                    <td><strong>${fmt(s.total_amount)}</strong></td>
+                    <td><span class="badge bg-info text-dark">${s.payment_method}</span></td>
+                    <td><span class="badge bg-${statusClass[s.payment_status]||'secondary'}">${s.payment_status}</span></td>
+                </tr>`).join('');
+        }
+
+        function exportCSV() {
+            const header = ['Transaction #','Date','Subtotal','Tax','Discount','Total','Method','Status'];
+            const rows   = allSales.map(s => [
+                s.transaction_number,
+                s.sale_date || s.created_at,
+                s.subtotal, s.tax_amount, s.discount_amount, s.total_amount,
+                s.payment_method, s.payment_status
+            ]);
+            const csv  = [header, ...rows].map(r => r.map(c => `"${c}"`).join(',')).join('\n');
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url  = URL.createObjectURL(blob);
+            const a    = document.createElement('a');
+            a.href     = url;
+            a.download = `vendgrid-sales-${new Date().toISOString().split('T')[0]}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        document.addEventListener('DOMContentLoaded', init);
+        return { load, filterSales, exportCSV };
+    })();
+
+    function rptLogout() { window.AuthManager.logout(); }
+    </script>
+</body>
+</html>

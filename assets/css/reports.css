@@ -1,0 +1,41 @@
+/* === Fix overlapping KPI numbers on reports page === */
+.stat-card {
+    background: white;
+    border-radius: 10px;
+    padding: 20px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+    height: 100%;
+    overflow: hidden;
+}
+
+.stat-card h3 {
+    font-size: 1.75rem;
+    font-weight: 700;
+    margin: 0;
+    word-break: break-word;
+    overflow-wrap: break-word;
+    white-space: normal;
+    line-height: 1.2;
+}
+
+.stat-card h6 {
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 0.5rem;
+}
+
+/* Ensure the row containing KPI cards uses proper gutters */
+.row.g-4 {
+    --bs-gutter-x: 1.5rem;
+    --bs-gutter-y: 1.5rem;
+    margin-right: 0;
+    margin-left: 0;
+}
+
+/* For very small screens, reduce font size */
+@media (max-width: 768px) {
+    .stat-card h3 {
+        font-size: 1.25rem;
+    }
+}
