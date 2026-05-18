@@ -616,9 +616,25 @@ h1, h2, h3, h4, h5, h6 {
 
 .icon-btn-success { color: #198754; border-color: #198754; }
 .icon-btn-success:hover { background: #198754; color: #fff; }
+.icon-btn-danger { color: #dc3545; border-color: #dc3545; }
+.icon-btn-danger:hover { background: #dc3545; color: #fff; }
 
 
 
 
 
 .border-dashed { border-style: dashed !important; }
+
+
+
+
+/* Customizing the hover effect on the dropdown */
+.iti__country:hover {
+    background-color: #f0f0f0;
+}
+/* Styling the selected flag area */
+.iti__selected-flag {
+    background-color: transparent !important;
+    border-radius: 6px 0 0 6px;
+}
+

@@ -24,7 +24,7 @@ async function loadReports() {
         .gte('sale_date', startDate.toISOString());
 
     if (error) {
-        showNotification('Failed to load sales data: ' + error.message, 'error');
+        showNotification(getUserFriendlyErrorMessage(error, 'Could not load sales data. Please check your connection.'), 'error');
         return;
     }
 
@@ -103,7 +103,7 @@ async function loadReports() {
 function renderSalesTable(salesList) {
     const tbody = document.getElementById('salesTable');
     if (!salesList.length) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-center">No sales found</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center">No sales found</td></tr>';
         return;
     }
     tbody.innerHTML = salesList.map(s => `
@@ -113,6 +113,13 @@ function renderSalesTable(salesList) {
             <td>${formatCurrency(s.total_amount)}</td>
             <td>${s.payment_method}</td>
             <td><span class="badge bg-success">${s.payment_status}</span></td>
+            ${currentProfile?.role === 'admin' ? `
+            <td class="text-nowrap">
+                <button class="btn btn-sm btn-outline-danger" onclick="permanentlyDeleteSale(${s.id}, '${escapeHtml(s.transaction_number)}')">
+                    <i class="fas fa-trash-alt"></i> Delete
+                </button>
+            </td>
+            ` : ''}
         </tr>
     `).join('');
 }
@@ -186,3 +193,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     await loadReports();
 });
+
+
+
+async function permanentlyDeleteSale(saleId, transactionNumber) {
+    const success = await permanentDeleteRecord('sales', saleId, transactionNumber);
+    if (success) {
+        await loadReports(); // refresh the current view
+    }
+}

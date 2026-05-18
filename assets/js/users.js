@@ -17,10 +17,19 @@ async function loadUsers() {
             <td>${p.email}</td>
             <td><span class="badge bg-${p.role === 'admin' ? 'danger' : p.role === 'manager' ? 'warning' : 'primary'}">${p.role}</span></td>
             <td><span class="badge bg-${p.is_active ? 'success' : 'secondary'}">${p.is_active ? 'Active' : 'Inactive'}</span></td>
-            <td><button class="btn btn-sm btn-outline-primary" onclick="editUser('${p.id}')"><i class="fas fa-edit"></i></button></td>
-        </tr>
+       <td class="text-nowrap">
+    <button class="btn btn-sm btn-outline-primary" onclick="editUser('${p.id}')"><i class="fas fa-edit"></i></button>
+    ${currentProfile?.role === 'admin' && p.id !== currentUser?.id ? `
+    <button class="btn btn-sm btn-outline-danger" onclick="permanentlyDeleteUser('${p.id}', '${p.first_name || ''} ${p.last_name || ''}')">
+        <i class="fas fa-trash-alt"></i> 
+    </button>
+    ` : ''}
+</td>
+    
+            </tr>
     `).join('');
 }
+
 
 async function editUser(userId) {
     const { data: user } = await supabaseClient
@@ -36,6 +45,13 @@ async function editUser(userId) {
         document.getElementById('editRole').value = user.role;
         document.getElementById('editStatus').value = user.is_active;
         new bootstrap.Modal(document.getElementById('userModal')).show();
+    }
+}
+
+async function permanentlyDeleteUser(userId, userName) {
+    const success = await permanentDeleteRecord('profiles', userId, userName);
+    if (success) {
+        await loadUsers();
     }
 }
 

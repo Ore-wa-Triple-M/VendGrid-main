@@ -1,4 +1,22 @@
 // Settings page (admin only)
+let iti = null;
+
+window.addEventListener('DOMContentLoaded', () => {
+    const phoneEl = document.getElementById('businessPhone');
+    if (phoneEl && window.intlTelInput) {
+        iti = window.intlTelInput(phoneEl, {
+            utilsScript: "https://cdn.jsdelivr.net/npm/intl-tel-input@23.0.10/build/js/utils.js",
+            initialCountry: "KE",
+            geoIpLookup: callback => {
+                fetch("https://ipapi.co/json")
+                    .then(res => res.json())
+                    .then(data => callback(data.country_code))
+                    .catch(() => callback("KE"));
+            }
+        });
+    }
+});
+
 async function loadSettings() {
     if (!await requireAdmin()) return;
     document.getElementById('userName');

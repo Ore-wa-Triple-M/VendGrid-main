@@ -2,16 +2,16 @@
  * inventory.js – VendGrid Inventory Module (merged & optimised)
  *
  * Sections:
- *  1. Utilities      – toast notifications, confirm modal, escapeHtml
- *  2. Products       – CRUD + search/filter
- *  3. Stock          – levels table + adjustment (direct on products table)
- *  4. Suppliers      – CRUD
- *  5. Purchase Orders – create, receive, cancel
+ *  1. Utilities      – toast notifications, escapeHtml, etc.
+ *  2. Products       – CRUD + soft delete + restore + permanent delete
+ *  3. Stock          – levels table + adjustment
+ *  4. Suppliers      – CRUD + permanent delete
+ *  5. Purchase Orders – create, receive, cancel, permanent delete
  *  6. Movements      – history table
  *  7. Tab listeners  – lazy-load each tab
  *  8. Boot           – auth check, initial load
  *  9. Public API     – window.INV namespace
- * 10. Excel Export   – multi-sheet XLSX export (Products, Stock, Suppliers, POs, Movements)
+ * 10. Excel Export   – multi-sheet XLSX export
  */
 
 'use strict';
@@ -20,7 +20,6 @@
 //  1. UTILITIES
 // ============================================================
 
-/** Toast notification (replaces all alert() calls) */
 function showToast(message, type = 'success') {
     const icons = { success: 'check-circle', error: 'times-circle', warning: 'exclamation-triangle', info: 'info-circle' };
     const toast = document.createElement('div');
@@ -39,22 +38,6 @@ function showToast(message, type = 'success') {
     }, 3500);
 }
 
-/**
- * Show a Bootstrap confirm modal and call onConfirm() if user clicks OK.
- * Clones the OK button each time to avoid stacking event listeners.
- */
-function showConfirm(onConfirm, title = 'Confirm', message = 'Are you sure?') {
-    document.getElementById('confirmModalTitle').textContent = title;
-    document.getElementById('confirmModalMessage').textContent = message;
-    const modal = new bootstrap.Modal(document.getElementById('confirmModal'));
-    modal.show();
-    const okBtn = document.getElementById('confirmModalOk');
-    const fresh = okBtn.cloneNode(true);
-    okBtn.parentNode.replaceChild(fresh, okBtn);
-    fresh.addEventListener('click', () => { modal.hide(); onConfirm(); });
-}
-
-/** Escape HTML to prevent XSS when rendering user data */
 function escapeHtml(str) {
     if (str == null) return '—';
     return String(str).replace(/[&<>"']/g, m =>
@@ -62,12 +45,10 @@ function escapeHtml(str) {
     );
 }
 
-/** Format a number as KES currency */
 function fmt(amount) {
     return parseFloat(amount || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-/** Show a spinner row inside a tbody */
 function showTableSpinner(tbodyId, cols) {
     const el = document.getElementById(tbodyId);
     if (el) el.innerHTML = `<tr><td colspan="${cols}" class="text-center py-4"><div class="spinner-border spinner-border-sm text-primary"></div></td></tr>`;
@@ -78,35 +59,67 @@ function showTableSpinner(tbodyId, cols) {
 // ============================================================
 
 let allProducts        = [];
+let allArchivedProducts = [];
 let allCategories      = [];
 let allSuppliers       = [];
 let allPurchaseOrders  = [];
 let allStockMovements  = [];
 
 // ============================================================
-//  3. PRODUCTS
+//  3. PRODUCTS – CRUD with soft delete & restore
 // ============================================================
 
 async function loadProducts() {
     showTableSpinner('productsTable', 9);
 
     const [{ data: products, error: prodErr }, { data: categories }] = await Promise.all([
-        supabaseClient.from('products').select('*, categories(name)'),
+        supabaseClient
+            .from('products')
+            .select('*, categories(name)')
+            .eq('is_active', true)
+            .is('deleted_at', null),
         supabaseClient.from('categories').select('*').eq('is_active', true)
     ]);
 
     if (prodErr) {
-        showToast('Failed to load products: ' + prodErr.message, 'error');
+        showToast(getUserFriendlyErrorMessage(prodErr, 'Could not load products. Please check your connection.'), 'error');
         return;
     }
 
     allProducts   = products   || [];
     allCategories = categories || [];
 
-    // Populate category dropdowns
     _populateCategoryDropdowns();
-
     renderProductsTable();
+    loadArchivedProducts();
+}
+
+async function loadArchivedProducts() {
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+    const { data: archived, error } = await supabaseClient
+        .from('products')
+        .select('*, categories(name)')
+        .eq('is_active', false)
+        .gte('deleted_at', sevenDaysAgo.toISOString())
+        .order('deleted_at', { ascending: false });
+
+    if (error) {
+        showToast(getUserFriendlyErrorMessage(error, 'Could not load archived products.'), 'error');
+        return;
+    }
+
+    allArchivedProducts = archived || [];
+    renderArchivedProductsTable();
+}
+
+async function permanentlyDeleteArchivedProduct(productId, productName) {
+    const success = await permanentDeleteRecord('products', productId, productName);
+    if (success) {
+        await loadArchivedProducts();
+        await loadProducts();
+    }
 }
 
 function _populateCategoryDropdowns() {
@@ -152,14 +165,14 @@ function renderProductsTable() {
                 <td>${escapeHtml(p.barcode)}</td>
                 <td><strong>${escapeHtml(p.name)}</strong>
                     ${p.description ? `<br><small class="text-muted">${escapeHtml(p.description)}</small>` : ''}
-                </td>
+                 </td>
                 <td>${cat ? escapeHtml(cat.name) : '—'}</td>
                 <td>${fmt(p.price)}</td>
                 <td>${fmt(p.cost)}</td>
                 <td>
                     <span class="${lowStock ? 'text-warning fw-bold' : ''}">${p.stock_quantity}</span>
                     ${lowStock ? '<span class="badge bg-warning text-dark ms-1">Low</span>' : ''}
-                </td>
+                 </td>
                 <td><span class="badge bg-${p.is_active ? 'success' : 'secondary'}">${p.is_active ? 'Active' : 'Inactive'}</span></td>
                 <td class="text-nowrap">
                     <button class="icon-btn icon-btn-edit" title="Edit"
@@ -174,8 +187,47 @@ function renderProductsTable() {
     }).join('');
 }
 
+function renderArchivedProductsTable() {
+    const tbody = document.getElementById('archivedProductsTable');
+    if (!tbody) return;
+
+    if (!allArchivedProducts.length) {
+        tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">No deleted products found</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = allArchivedProducts.map(p => {
+        const cat = allCategories.find(c => c.id === p.category_id);
+        const deletedDate = p.deleted_at ? new Date(p.deleted_at).toLocaleDateString('en-KE') : '—';
+        return `
+            <tr class="table-secondary">
+                <td><code>${escapeHtml(p.sku)}</code></td>
+                <td>${escapeHtml(p.barcode)}</td>
+                <td><strong>${escapeHtml(p.name)}</strong>
+                    ${p.description ? `<br><small class="text-muted">${escapeHtml(p.description)}</small>` : ''}
+                </td>
+                <td>${cat ? escapeHtml(cat.name) : '—'}</td>
+                <td>${fmt(p.price)}</td>
+                <td>${fmt(p.cost)}</td>
+                <td>${deletedDate}</td>
+                <td class="text-nowrap">
+                    <button class="icon-btn icon-btn-success" title="Restore"
+                        onclick="INV.restoreProduct(${p.id})">
+                        <i class="fas fa-trash-restore"></i> Restore
+                    </button>
+                    ${currentProfile?.role === 'admin' ? `
+                    <button class="icon-btn icon-btn-danger" title="Permanently Delete"
+                        onclick="INV.permanentlyDeleteArchivedProduct(${p.id}, '${escapeHtml(p.name)}')">
+                        <i class="fas fa-skull-crossbones"></i> Delete Permanently
+                    </button>
+                    ` : ''}
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
 function openProductModal(id = null) {
-    // Reset all fields
     const fields = {
         productId: '', prodSku: '', prodBarcode: '', prodName: '',
         prodDesc: '', prodPrice: '', prodCost: '', prodStock: '0',
@@ -223,7 +275,8 @@ async function saveProduct() {
         stock_quantity: parseInt(document.getElementById('prodStock').value) || 0,
         reorder_point:  parseInt(document.getElementById('prodReorder').value) || 5,
         category_id:    document.getElementById('productCategory').value || null,
-        is_active:      document.getElementById('prodActive').value === '1',
+        is_active:      true,
+        deleted_at:     null,
         updated_at:     new Date().toISOString()
     };
 
@@ -232,7 +285,7 @@ async function saveProduct() {
         : await supabaseClient.from('products').insert({ ...data, created_at: new Date().toISOString() });
 
     if (result.error) {
-        showToast('Error: ' + result.error.message, 'error');
+        showToast(getUserFriendlyErrorMessage(result.error, 'Failed to save product. Please try again.'), 'error');
     } else {
         bootstrap.Modal.getInstance(document.getElementById('productModal')).hide();
         showToast(id ? 'Product updated' : 'Product created', 'success');
@@ -240,21 +293,54 @@ async function saveProduct() {
     }
 }
 
+// Soft delete – move to deleted-recently table
 async function deleteProduct(id) {
-    showConfirm(async () => {
-        const { error } = await supabaseClient
-            .from('products').update({ is_active: false }).eq('id', id);
-        if (error) {
-            showToast('Delete failed: ' + error.message, 'error');
-        } else {
-            showToast('Product deleted', 'success');
-            await loadProducts();
-        }
-    }, 'Delete Product', 'Are you sure you want to delete this product?');
+    const confirmed = await showConfirmationToast('⚠️ Move this product to "Deleted Recently"? It will remain recoverable for 7 days before permanent removal.', 10000);
+    if (!confirmed) return;
+
+    const { error } = await supabaseClient
+        .from('products')
+        .update({ 
+            is_active: false, 
+            deleted_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+        })
+        .eq('id', id);
+
+    if (error) {
+        showToast(getUserFriendlyErrorMessage(error, 'Failed to delete product.'), 'error');
+    } else {
+        showToast('Product deleted successfully', 'success');
+        await loadProducts();
+        await loadArchivedProducts();
+    }
+}
+
+// Restore product from deleted-recently table
+async function restoreProduct(id) {
+    const confirmed = await showConfirmationToast('Restore this product to active inventory?', 8000);
+    if (!confirmed) return;
+
+    const { error } = await supabaseClient
+        .from('products')
+        .update({ 
+            is_active: true, 
+            deleted_at: null,
+            updated_at: new Date().toISOString()
+        })
+        .eq('id', id);
+
+    if (error) {
+        showToast(getUserFriendlyErrorMessage(error, 'Failed to restore product.'), 'error');
+    } else {
+        showToast('Product restored successfully', 'success');
+        await loadProducts();
+        await loadArchivedProducts();
+    }
 }
 
 // ============================================================
-//  4. STOCK (direct on products table, matching your DB schema)
+//  4. STOCK (unchanged logic, only error messages)
 // ============================================================
 
 async function loadStock() {
@@ -264,10 +350,11 @@ async function loadStock() {
         .from('products')
         .select('id, sku, name, stock_quantity, reorder_point')
         .eq('is_active', true)
+        .is('deleted_at', null)
         .order('name');
 
     if (error) {
-        showToast('Failed to load stock: ' + error.message, 'error');
+        showToast(getUserFriendlyErrorMessage(error, 'Could not load stock levels. Please check your connection.'), 'error');
         return;
     }
 
@@ -299,12 +386,7 @@ async function loadStock() {
     }).join('');
 }
 
-/**
- * openAdjustModal — can be called with a productId (pre-selects it)
- * or without (user picks from dropdown).
- */
 function openAdjustModal(productId = null) {
-    // Populate product dropdown
     const select = document.getElementById('adjProductSelect');
     select.innerHTML = '<option value="">— Select Product —</option>' +
         allProducts.map(p => `<option value="${p.id}">${escapeHtml(p.name)} (Stock: ${p.stock_quantity})</option>`).join('');
@@ -334,18 +416,16 @@ async function adjustStock() {
         return;
     }
 
-    // Update stock_quantity on products
     const { error: updateErr } = await supabaseClient
         .from('products')
         .update({ stock_quantity: newStock, updated_at: new Date().toISOString() })
         .eq('id', productId);
 
     if (updateErr) {
-        showToast('Stock update failed: ' + updateErr.message, 'error');
+        showToast(getUserFriendlyErrorMessage(updateErr, 'Failed to adjust stock. Please try again.'), 'error');
         return;
     }
 
-    // Log to stock_movements
     await supabaseClient.from('stock_movements').insert({
         product_id:    parseInt(productId),
         movement_type: 'ADJUSTMENT',
@@ -357,13 +437,12 @@ async function adjustStock() {
     bootstrap.Modal.getInstance(document.getElementById('adjustModal')).hide();
     showToast(`Stock updated: ${product.name} → ${newStock}`, 'success');
 
-    // Refresh both relevant views
     await loadProducts();
     await loadStock();
 }
 
 // ============================================================
-//  5. SUPPLIERS
+//  5. SUPPLIERS – with permanent delete
 // ============================================================
 
 async function loadSuppliers() {
@@ -373,7 +452,7 @@ async function loadSuppliers() {
         .from('suppliers').select('*').order('name');
 
     if (error) {
-        showToast('Failed to load suppliers: ' + error.message, 'error');
+        showToast(getUserFriendlyErrorMessage(error, 'Could not load suppliers.'), 'error');
         return;
     }
 
@@ -396,11 +475,20 @@ async function loadSuppliers() {
             <td class="text-nowrap">
                 <button class="icon-btn icon-btn-edit"
                     onclick="INV.openSupplierModal(${s.id})"><i class="fas fa-edit"></i></button>
-                <button class="icon-btn icon-btn-delete"
-                    onclick="INV.deleteSupplier(${s.id})"><i class="fas fa-trash"></i></button>
+                ${currentProfile?.role === 'admin' ? `
+                <button class="icon-btn icon-btn-danger" title="Permanently Delete"
+                    onclick="INV.permanentlyDeleteSupplier(${s.id}, '${escapeHtml(s.name)}')">
+                    <i class="fas fa-skull-crossbones"></i>
+                </button>
+                ` : ''}
             </td>
         </tr>
     `).join('');
+}
+
+async function permanentlyDeleteSupplier(supplierId, supplierName) {
+    const success = await permanentDeleteRecord('suppliers', supplierId, supplierName);
+    if (success) await loadSuppliers();
 }
 
 function openSupplierModal(id = null) {
@@ -444,7 +532,7 @@ async function saveSupplier() {
         : await supabaseClient.from('suppliers').insert({ ...data, created_at: new Date().toISOString() });
 
     if (result.error) {
-        showToast('Error: ' + result.error.message, 'error');
+        showToast(getUserFriendlyErrorMessage(result.error, 'Failed to save supplier.'), 'error');
     } else {
         bootstrap.Modal.getInstance(document.getElementById('supplierModal')).hide();
         showToast(id ? 'Supplier updated' : 'Supplier created', 'success');
@@ -453,26 +541,27 @@ async function saveSupplier() {
 }
 
 async function deleteSupplier(id) {
-    showConfirm(async () => {
-        const { error } = await supabaseClient
-            .from('suppliers').update({ is_active: false }).eq('id', id);
-        if (error) {
-            showToast('Delete failed: ' + error.message, 'error');
-        } else {
-            showToast('Supplier deleted', 'success');
-            await loadSuppliers();
-        }
-    }, 'Delete Supplier', 'Are you sure you want to delete this supplier?');
+    const confirmed = await showConfirmationToast('Delete this supplier? This action cannot be undone.', 8000);
+    if (!confirmed) return;
+
+    const { error } = await supabaseClient
+        .from('suppliers').update({ is_active: false }).eq('id', id);
+
+    if (error) {
+        showToast(getUserFriendlyErrorMessage(error, 'Failed to delete supplier.'), 'error');
+    } else {
+        showToast('Supplier deleted', 'success');
+        await loadSuppliers();
+    }
 }
 
 // ============================================================
-//  6. PURCHASE ORDERS
+//  6. PURCHASE ORDERS – with permanent delete
 // ============================================================
 
 async function loadPOs() {
     showTableSpinner('poTable', 7);
 
-    // Ensure suppliers are loaded for name lookups
     if (!allSuppliers.length) await loadSuppliers();
 
     const { data: pos, error } = await supabaseClient
@@ -481,13 +570,13 @@ async function loadPOs() {
         .order('order_date', { ascending: false });
 
     if (error) {
-        showToast('Failed to load purchase orders: ' + error.message, 'error');
+        showToast(getUserFriendlyErrorMessage(error, 'Could not load purchase orders.'), 'error');
         return;
     }
 
     allPurchaseOrders = pos || [];
-
     const tbody = document.getElementById('poTable');
+
     if (!allPurchaseOrders.length) {
         tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">No purchase orders yet</td></tr>';
         return;
@@ -511,14 +600,24 @@ async function loadPOs() {
                     <button class="icon-btn icon-btn-delete" title="Cancel"
                         onclick="INV.cancelPO(${po.id})"><i class="fas fa-times"></i></button>
                     ` : '—'}
+                    ${currentProfile?.role === 'admin' ? `
+                    <button class="icon-btn icon-btn-danger" title="Permanently Delete"
+                        onclick="INV.permanentlyDeletePO(${po.id}, '${escapeHtml(po.po_number)}')">
+                        <i class="fas fa-skull-crossbones"></i>
+                    </button>
+                    ` : ''}
                 </td>
             </tr>
         `;
     }).join('');
 }
 
+async function permanentlyDeletePO(poId, poNumber) {
+    const success = await permanentDeleteRecord('purchase_orders', poId, poNumber);
+    if (success) await loadPOs();
+}
+
 async function openPOModal() {
-    // Make sure we have suppliers
     if (!allSuppliers.length) await loadSuppliers();
 
     const supplierSelect = document.getElementById('poSupplier');
@@ -562,7 +661,7 @@ async function savePO() {
     });
 
     if (error) {
-        showToast('Failed to create PO: ' + error.message, 'error');
+        showToast(getUserFriendlyErrorMessage(error, 'Failed to create purchase order.'), 'error');
     } else {
         bootstrap.Modal.getInstance(document.getElementById('poModal')).hide();
         showToast('Purchase order created', 'success');
@@ -571,29 +670,41 @@ async function savePO() {
 }
 
 async function markPOReceived(id) {
-    showConfirm(async () => {
-        const { error } = await supabaseClient
-            .from('purchase_orders')
-            .update({ status: 'RECEIVED', received_date: new Date().toISOString().split('T')[0], updated_at: new Date().toISOString() })
-            .eq('id', id);
-        if (error) { showToast('Error: ' + error.message, 'error'); }
-        else { showToast('PO marked as received', 'success'); await loadPOs(); }
-    }, 'Mark as Received', 'Mark this purchase order as received?');
+    const confirmed = await showConfirmationToast('Mark this purchase order as received?', 8000);
+    if (!confirmed) return;
+
+    const { error } = await supabaseClient
+        .from('purchase_orders')
+        .update({ status: 'RECEIVED', received_date: new Date().toISOString().split('T')[0], updated_at: new Date().toISOString() })
+        .eq('id', id);
+
+    if (error) {
+        showToast(getUserFriendlyErrorMessage(error, 'Failed to mark PO as received.'), 'error');
+    } else {
+        showToast('PO marked as received', 'success');
+        await loadPOs();
+    }
 }
 
 async function cancelPO(id) {
-    showConfirm(async () => {
-        const { error } = await supabaseClient
-            .from('purchase_orders')
-            .update({ status: 'CANCELLED', updated_at: new Date().toISOString() })
-            .eq('id', id);
-        if (error) { showToast('Error: ' + error.message, 'error'); }
-        else { showToast('Purchase order cancelled', 'success'); await loadPOs(); }
-    }, 'Cancel PO', 'Are you sure you want to cancel this purchase order?');
+    const confirmed = await showConfirmationToast('Cancel this purchase order?', 8000);
+    if (!confirmed) return;
+
+    const { error } = await supabaseClient
+        .from('purchase_orders')
+        .update({ status: 'CANCELLED', updated_at: new Date().toISOString() })
+        .eq('id', id);
+
+    if (error) {
+        showToast(getUserFriendlyErrorMessage(error, 'Failed to cancel purchase order.'), 'error');
+    } else {
+        showToast('Purchase order cancelled', 'success');
+        await loadPOs();
+    }
 }
 
 // ============================================================
-//  7. STOCK MOVEMENTS
+//  7. STOCK MOVEMENTS (unchanged)
 // ============================================================
 
 async function loadMovements() {
@@ -606,13 +717,13 @@ async function loadMovements() {
         .limit(100);
 
     if (error) {
-        showToast('Failed to load movements: ' + error.message, 'error');
+        showToast(getUserFriendlyErrorMessage(error, 'Could not load stock movements.'), 'error');
         return;
     }
 
     allStockMovements = movements || [];
-
     const tbody = document.getElementById('movementsTable');
+
     if (!allStockMovements.length) {
         tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">No movements recorded</td></tr>';
         return;
@@ -650,7 +761,6 @@ async function loadMovements() {
             ?.addEventListener('shown.bs.tab', fn);
     });
 
-    // Search & filter in products tab
     document.getElementById('productSearch')
         ?.addEventListener('input', renderProductsTable);
     document.getElementById('categoryFilter')
@@ -669,7 +779,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         userNameEl.textContent = currentProfile?.first_name || currentUser?.email || 'User';
     }
 
-    // Load products (default active tab)
     await loadProducts();
 });
 
@@ -682,7 +791,9 @@ window.INV = {
     openProductModal,
     saveProduct,
     deleteProduct,
+    restoreProduct,
     filterProducts: renderProductsTable,
+    permanentlyDeleteArchivedProduct,
 
     // Stock
     openAdjustModal,
@@ -692,28 +803,23 @@ window.INV = {
     openSupplierModal,
     saveSupplier,
     deleteSupplier,
+    permanentlyDeleteSupplier,
 
     // Purchase Orders
     openPOModal,
     savePO,
     markPOReceived,
-    cancelPO
+    cancelPO,
+    permanentlyDeletePO
 };
 
 // ============================================================
-//  11. EXCEL EXPORT (multi-sheet, uses ExcelJS via CDN)
+//  11. EXCEL EXPORT (unchanged)
 // ============================================================
 
-/**
- * Exports all inventory sections (Products, Stock, Suppliers, Purchase Orders, Movements)
- * into a single professionally styled Excel workbook.
- * Requires the `exportToExcel` utility from assets/js/xlsx-export.js
- */
 async function exportInventoryToExcel() {
-    // Ensure all data is fresh
     await Promise.all([loadProducts(), loadStock(), loadSuppliers(), loadPOs(), loadMovements()]);
 
-    // ----- 1. Products sheet -----
     const productsSheet = {
         name: 'Products',
         title: 'Products Catalog',
@@ -731,7 +837,6 @@ async function exportInventoryToExcel() {
         data: allProducts
     };
 
-    // ----- 2. Stock sheet (from products table) -----
     const stockSheet = {
         name: 'Stock Levels',
         title: 'Current Inventory Stock',
@@ -745,7 +850,6 @@ async function exportInventoryToExcel() {
         data: allProducts
     };
 
-    // ----- 3. Suppliers sheet -----
     const suppliersSheet = {
         name: 'Suppliers',
         title: 'Supplier List',
@@ -760,7 +864,6 @@ async function exportInventoryToExcel() {
         data: allSuppliers
     };
 
-    // ----- 4. Purchase Orders sheet -----
     const poSheet = {
         name: 'Purchase Orders',
         title: 'Purchase Orders',
@@ -775,7 +878,6 @@ async function exportInventoryToExcel() {
         data: allPurchaseOrders
     };
 
-    // ----- 5. Stock Movements sheet -----
     const movementsSheet = {
         name: 'Stock Movements',
         title: 'Stock Movement History (last 100)',
@@ -790,7 +892,6 @@ async function exportInventoryToExcel() {
         data: allStockMovements
     };
 
-    // Call the global exportToExcel function (defined in xlsx-export.js)
     if (typeof exportToExcel === 'function') {
         await exportToExcel('VendGrid_Inventory', [productsSheet, stockSheet, suppliersSheet, poSheet, movementsSheet]);
         showToast('Excel report generated successfully', 'success');
@@ -799,5 +900,4 @@ async function exportInventoryToExcel() {
     }
 }
 
-// Expose the export function for the button onclick
 window.exportInventoryToExcel = exportInventoryToExcel;

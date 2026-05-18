@@ -62,15 +62,16 @@
         <i class="fas fa-cog"></i><span>Settings</span>
     </a>
 </div>
-<!-- ── Main Content ─────────────────────────────────────────── -->
 
-    <div class="main-content">
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <h1 class="h3 fw-bold">Inventory Management</h1>
-            <button class="btn btn-outline-success" onclick="exportInventoryToExcel()">
-                <i class="fas fa-file-excel me-1"></i> Export Inventory Spreadsheet
-            </button>
-        </div>
+<!-- ── Main Content ─────────────────────────────────────────── -->
+<div class="main-content">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="h3 fw-bold">Inventory Management</h1>
+        <button class="btn btn-outline-success" onclick="exportInventoryToExcel()">
+            <i class="fas fa-file-excel me-1"></i> Export Inventory Spreadsheet
+        </button>
+    </div>
+
     <!-- Tabs -->
     <ul class="nav nav-tabs mb-4" id="invTabs">
         <li class="nav-item">
@@ -101,13 +102,11 @@
     </ul>
 
     <div class="tab-content">
-
         <!-- ── Products Tab ─────────────────────────────────── -->
         <div class="tab-pane fade show active" id="products-tab">
             <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
                 <div class="d-flex gap-2 flex-wrap">
-                    <input type="text" id="productSearch" class="form-control"
-                           style="width:220px" placeholder="Search products…">
+                    <input type="text" id="productSearch" class="form-control" style="width:220px" placeholder="Search products…">
                     <select id="categoryFilter" class="form-select" style="width:180px">
                         <option value="">All Categories</option>
                     </select>
@@ -116,21 +115,16 @@
                     <i class="fas fa-plus me-1"></i>Add Product
                 </button>
             </div>
+
+            <!-- Active products table -->
             <div class="card shadow-sm">
                 <div class="card-body p-0">
                     <div class="table-responsive">
                         <table class="table table-hover mb-0">
                             <thead class="table-light">
                                 <tr>
-                                    <th>SKU</th>
-                                    <th>Barcode</th>
-                                    <th>Name</th>
-                                    <th>Category</th>
-                                    <th>Price (KES)</th>
-                                    <th>Cost (KES)</th>
-                                    <th>Stock</th>
-                                    <th>Status</th>
-                                    <th>Actions</th>
+                                    <th>SKU</th><th>Barcode</th><th>Name</th><th>Category</th>
+                                    <th>Price (KES)</th><th>Cost (KES)</th><th>Stock</th><th>Status</th><th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="productsTable">
@@ -143,9 +137,33 @@
                     </div>
                 </div>
             </div>
+
+            <!-- ── Deleted Recently table (soft‑deleted, recoverable for 7 days) ── -->
+            <div class="card shadow-sm mt-4">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0"><i class="fas fa-trash-alt me-2"></i>Deleted Recently (recoverable for 7 days)</h5>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>SKU</th><th>Barcode</th><th>Name</th><th>Category</th>
+                                    <th>Price (KES)</th><th>Cost (KES)</th><th>Deleted At</th><th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="archivedProductsTable">
+                                <tr><td colspan="8" class="text-center py-4">
+                                    <div class="spinner-border spinner-border-sm text-primary"></div>
+                                </td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
         </div>
 
-        <!-- ── Stock Tab ────────────────────────────────────── -->
+        <!-- ── Stock Tab (unchanged) ────────────────────────────────────── -->
         <div class="tab-pane fade" id="stock-tab">
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <h5 class="mb-0">Current Stock Levels</h5>
@@ -159,18 +177,14 @@
                         <table class="table table-hover mb-0">
                             <thead class="table-light">
                                 <tr>
-                                    <th>Product</th>
-                                    <th>SKU</th>
-                                    <th>Stock Qty</th>
-                                    <th>Reorder Point</th>
-                                    <th>Status</th>
-                                    <th>Actions</th>
+                                    <th>Product</th><th>SKU</th><th>Stock Qty</th>
+                                    <th>Reorder Point</th><th>Status</th><th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="stockTable">
                                 <tr><td colspan="6" class="text-center py-4">
                                     <div class="spinner-border spinner-border-sm text-primary"></div>
-                                </td></tr>
+                                <\/td><\/tr>
                             </tbody>
                         </table>
                     </div>
@@ -178,7 +192,7 @@
             </div>
         </div>
 
-        <!-- ── Suppliers Tab ────────────────────────────────── -->
+        <!-- ── Suppliers Tab (unchanged) ────────────────────────────────── -->
         <div class="tab-pane fade" id="suppliers-tab">
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <h5 class="mb-0">Suppliers</h5>
@@ -192,18 +206,14 @@
                         <table class="table table-hover mb-0">
                             <thead class="table-light">
                                 <tr>
-                                    <th>Name</th>
-                                    <th>Contact Person</th>
-                                    <th>Email</th>
-                                    <th>Phone</th>
-                                    <th>Status</th>
-                                    <th>Actions</th>
+                                    <th>Name</th><th>Contact Person</th><th>Email</th>
+                                    <th>Phone</th><th>Status</th><th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="suppliersTable">
                                 <tr><td colspan="6" class="text-center py-4">
                                     <div class="spinner-border spinner-border-sm text-primary"></div>
-                                </td></tr>
+                                <\/td><\/tr>
                             </tbody>
                         </table>
                     </div>
@@ -211,7 +221,7 @@
             </div>
         </div>
 
-        <!-- ── Purchase Orders Tab ──────────────────────────── -->
+        <!-- ── Purchase Orders Tab (unchanged) ──────────────────────────── -->
         <div class="tab-pane fade" id="po-tab">
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <h5 class="mb-0">Purchase Orders</h5>
@@ -225,19 +235,14 @@
                         <table class="table table-hover mb-0">
                             <thead class="table-light">
                                 <tr>
-                                    <th>PO #</th>
-                                    <th>Supplier</th>
-                                    <th>Status</th>
-                                    <th>Total (KES)</th>
-                                    <th>Order Date</th>
-                                    <th>Expected Delivery</th>
-                                    <th>Actions</th>
+                                    <th>PO #</th><th>Supplier</th><th>Status</th><th>Total (KES)</th>
+                                    <th>Order Date</th><th>Expected Delivery</th><th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="poTable">
-                                <tr><td colspan="7" class="text-center py-4">
+                                <td><td colspan="7" class="text-center py-4">
                                     <div class="spinner-border spinner-border-sm text-primary"></div>
-                                </td></tr>
+                                <\/td><\/tr>
                             </tbody>
                         </table>
                     </div>
@@ -245,7 +250,7 @@
             </div>
         </div>
 
-        <!-- ── Movements Tab ────────────────────────────────── -->
+        <!-- ── Movements Tab (unchanged) ────────────────────────────────── -->
         <div class="tab-pane fade" id="movements-tab">
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <h5 class="mb-0">Stock Movements <small class="text-muted fw-normal">(last 100)</small></h5>
@@ -256,31 +261,26 @@
                         <table class="table table-hover mb-0">
                             <thead class="table-light">
                                 <tr>
-                                    <th>Product</th>
-                                    <th>Type</th>
-                                    <th>Qty Change</th>
-                                    <th>Reference</th>
-                                    <th>Notes</th>
-                                    <th>Date</th>
+                                    <th>Product</th><th>Type</th><th>Qty Change</th>
+                                    <th>Reference</th><th>Notes</th><th>Date</th>
                                 </tr>
                             </thead>
                             <tbody id="movementsTable">
                                 <tr><td colspan="6" class="text-center py-4">
                                     <div class="spinner-border spinner-border-sm text-primary"></div>
-                                </td></tr>
+                                <\/td><\/tr>
                             </tbody>
                         </table>
                     </div>
                 </div>
             </div>
         </div>
-
     </div><!-- /tab-content -->
 </div><!-- /main-content -->
 
 
 <!-- ═══════════════════════════════════════════════════════════
-     MODALS
+     MODALS (unchanged)
 ═══════════════════════════════════════════════════════════ -->
 
 <!-- ── Product Modal ────────────────────────────────────────── -->
