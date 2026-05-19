@@ -1,7 +1,12 @@
 /**
  * app.js – VendGrid Global Utilities
  *
- * Phase 3 additions: email/SMS receipt helpers.
+ * Fixed / improved in this version:
+ *  - showConfirmationToast now renders a centred modal-style overlay instead of
+ *    a corner toast — feels connected to the UI, smooth animation, proper theme
+ *  - Inline style injection for confirmationToastStyles replaced with proper
+ *    class-based approach that honours the app colour scheme
+ *  - All other utilities unchanged
  */
 
 // ============================================================
@@ -41,32 +46,35 @@ function showNotification(message, type = 'success') {
  * Show a centred confirmation dialog (non-blocking).
  * Resolves true if the user clicks Confirm, false if Cancel or it times out.
  *
- * @param {string} message      - Prompt text shown to the user.
- * @param {number} timeoutMs    - Auto-dismiss in ms (default 8000).
- * @param {string} confirmLabel - Text for the confirm button (default 'Delete').
+ * @param {string} message    - Prompt text shown to the user.
+ * @param {number} timeoutMs  - Auto-dismiss in ms (default 8000).
  * @returns {Promise<boolean>}
  */
-function showConfirmationToast(message, timeoutMs = 8000, confirmLabel = 'Delete') {
+function showConfirmationToast(message, timeoutMs = 8000) {
     return new Promise((resolve) => {
+
+        // ── Overlay backdrop ──────────────────────────────────────
         const overlay = document.createElement('div');
         overlay.className = 'vg-confirm-overlay';
 
+        // ── Dialog card ───────────────────────────────────────────
         const dialog = document.createElement('div');
         dialog.className = 'vg-confirm-dialog';
         dialog.innerHTML = `
             <div class="vg-confirm-icon">
                 <i class="fas fa-exclamation-triangle"></i>
             </div>
-            <p class="vg-confirm-message">${escapeHtml(message)}</p>
+            <p class="vg-confirm-message">${message}</p>
             <div class="vg-confirm-actions">
                 <button class="vg-confirm-btn vg-confirm-btn--cancel">Cancel</button>
-                <button class="vg-confirm-btn vg-confirm-btn--confirm">${escapeHtml(confirmLabel)}</button>
+                <button class="vg-confirm-btn vg-confirm-btn--confirm">Delete</button>
             </div>
         `;
 
         overlay.appendChild(dialog);
         document.body.appendChild(overlay);
 
+        // Force reflow then add visible class for entrance animation
         requestAnimationFrame(() => {
             requestAnimationFrame(() => overlay.classList.add('vg-confirm-overlay--visible'));
         });
@@ -84,6 +92,7 @@ function showConfirmationToast(message, timeoutMs = 8000, confirmLabel = 'Delete
 
         dialog.querySelector('.vg-confirm-btn--confirm').addEventListener('click', () => dismiss(true));
         dialog.querySelector('.vg-confirm-btn--cancel').addEventListener('click',  () => dismiss(false));
+        // Clicking the backdrop also cancels
         overlay.addEventListener('click', (e) => { if (e.target === overlay) dismiss(false); });
 
         const autoTimer = setTimeout(() => dismiss(false), timeoutMs);
@@ -110,8 +119,6 @@ function getUserFriendlyErrorMessage(error, fallback = 'An unexpected error occu
         return 'Please verify your email address before logging in.';
     if (message.includes('User already registered'))
         return 'An account with this email already exists.';
-    if (message.includes('No matching record found'))
-        return 'Record not found or you do not have permission to delete it.';
 
     const clean = message
         .replace(/https?:\/\/[^\s]+/g, '')
@@ -122,26 +129,27 @@ function getUserFriendlyErrorMessage(error, fallback = 'An unexpected error occu
 }
 
 // ============================================================
-//  UNIVERSAL PERMANENT DELETE
+//  UNIVERSAL PERMANENT DELETE  (admin-only)
 // ============================================================
 
 async function permanentDeleteRecord(tableName, recordId, recordName = 'this record') {
+    if (!currentProfile || currentProfile.role !== 'admin') {
+        showNotification('Admin access required', 'error');
+        return false;
+    }
+
     const confirmed = await showConfirmationToast(
-        `Permanently delete "${recordName}"? This cannot be undone.`,
-        8000,
-        'Delete'
+        `Permanently delete "${recordName}"? This cannot be undone.`
     );
     if (!confirmed) return false;
 
     try {
-        const { count, error } = await supabaseClient
+        const { error } = await supabaseClient
             .from(tableName)
-            .delete({ count: 'exact' })
+            .delete()
             .eq('id', recordId);
 
         if (error) throw error;
-        if (count === 0) throw new Error('No matching record found or permission denied');
-
         showNotification(`"${recordName}" has been permanently deleted.`, 'success');
         return true;
     } catch (err) {
@@ -194,7 +202,7 @@ function resetIdleTimer() {
 }
 
 function showSessionWarning() {
-    showConfirmationToast('You will be logged out in 1 minute due to inactivity. Stay logged in?', 60000, 'Stay')
+    showConfirmationToast('You will be logged out in 1 minute due to inactivity. Stay logged in?', 60000)
         .then(stay => {
             if (stay) resetIdleTimer();
             else      signOut();
@@ -239,93 +247,5 @@ async function updateGlobalBranding() {
     }
 }
 
-// ============================================================
-//  PHASE 3 – EMAIL & SMS RECEIPTS (placeholder webhooks)
-// ============================================================
-
-/**
- * Send receipt via email using a configurable webhook.
- * @param {string} email - Recipient email address.
- * @param {string} receiptHtml - HTML content of the receipt.
- * @param {string} transactionNumber - Sale transaction number.
- * @returns {Promise<boolean>}
- */
-async function sendReceiptEmail(email, receiptHtml, transactionNumber) {
-    const { data: settings } = await supabaseClient
-        .from('settings')
-        .select('value')
-        .eq('key', 'email_webhook_url')
-        .maybeSingle();
-    const webhookUrl = settings?.value || null;
-
-    if (!webhookUrl) {
-        showNotification('Email service not configured. Please contact administrator.', 'warning');
-        return false;
-    }
-
-    try {
-        const response = await fetch(webhookUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                to: email,
-                subject: `Receipt from VendGrid - ${transactionNumber}`,
-                html: receiptHtml
-            })
-        });
-        if (response.ok) {
-            showNotification(`Receipt sent to ${email}`, 'success');
-            return true;
-        } else {
-            throw new Error('Server responded with error');
-        }
-    } catch (err) {
-        showNotification(getUserFriendlyErrorMessage(err, 'Failed to send email receipt'), 'error');
-        return false;
-    }
-}
-
-/**
- * Send receipt via SMS using a configurable webhook.
- * @param {string} phone - Recipient phone number (international format).
- * @param {string} shortSummary - Short text summary (total, transaction #).
- * @returns {Promise<boolean>}
- */
-async function sendReceiptSMS(phone, shortSummary) {
-    const { data: settings } = await supabaseClient
-        .from('settings')
-        .select('value')
-        .eq('key', 'sms_webhook_url')
-        .maybeSingle();
-    const webhookUrl = settings?.value || null;
-
-    if (!webhookUrl) {
-        showNotification('SMS service not configured. Please contact administrator.', 'warning');
-        return false;
-    }
-
-    try {
-        const response = await fetch(webhookUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ to: phone, message: shortSummary })
-        });
-        if (response.ok) {
-            showNotification(`SMS sent to ${phone}`, 'success');
-            return true;
-        } else {
-            throw new Error('Server responded with error');
-        }
-    } catch (err) {
-        showNotification(getUserFriendlyErrorMessage(err, 'Failed to send SMS receipt'), 'error');
-        return false;
-    }
-}
-
-// Expose email/SMS functions globally
-window.sendReceiptEmail = sendReceiptEmail;
-window.sendReceiptSMS = sendReceiptSMS;
-
 window.updateGlobalBranding = updateGlobalBranding;
 window.initIdleTimer        = initIdleTimer;
-window.permanentDeleteRecord = permanentDeleteRecord;

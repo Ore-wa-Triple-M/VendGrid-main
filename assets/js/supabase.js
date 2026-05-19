@@ -26,13 +26,25 @@ async function requireAuth() {
     }
     currentUser = session.user;
     currentProfile = await getCurrentProfile();
+    
+    // Initialize idle timer after successful login
+    if (typeof initIdleTimer === 'function') {
+        initIdleTimer();
+    }
+    // Apply global branding (logo)
+    if (typeof updateGlobalBranding === 'function') {
+        await updateGlobalBranding();
+    }
+    // Expose role globally for permissions
+    window.getUserRole = () => currentProfile?.role;
+    
     return true;
 }
 
 async function requireAdmin() {
     if (!await requireAuth()) return false;
     if (currentProfile?.role !== 'admin') {
-      showNotification('Admin access required', 'error');
+        showNotification('Admin access required', 'error');
         setTimeout(() => window.location.href = 'dashboard.html', 2000);
         return false;
     }

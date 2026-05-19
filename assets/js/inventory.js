@@ -1,17 +1,7 @@
 /**
  * inventory.js – VendGrid Inventory Module (merged & optimised)
- *
- * Sections:
- *  1. Utilities      – toast notifications, escapeHtml, etc.
- *  2. Products       – CRUD + soft delete + restore + permanent delete
- *  3. Stock          – levels table + adjustment
- *  4. Suppliers      – CRUD + permanent delete
- *  5. Purchase Orders – create, receive, cancel, permanent delete
- *  6. Movements      – history table
- *  7. Tab listeners  – lazy-load each tab
- *  8. Boot           – auth check, initial load
- *  9. Public API     – window.INV namespace
- * 10. Excel Export   – multi-sheet XLSX export
+ * 
+ * Full RBAC integration: page access check + permission-based UI.
  */
 
 'use strict';
@@ -38,12 +28,7 @@ function showToast(message, type = 'success') {
     }, 3500);
 }
 
-function escapeHtml(str) {
-    if (str == null) return '—';
-    return String(str).replace(/[&<>"']/g, m =>
-        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m])
-    );
-}
+// escapeHtml() provided globally by app.js
 
 function fmt(amount) {
     return parseFloat(amount || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -115,6 +100,10 @@ async function loadArchivedProducts() {
 }
 
 async function permanentlyDeleteArchivedProduct(productId, productName) {
+    if (!hasPermission('canPermanentlyDeleteProduct')) {
+        showToast('You do not have permission to permanently delete products.', 'error');
+        return;
+    }
     const success = await permanentDeleteRecord('products', productId, productName);
     if (success) {
         await loadArchivedProducts();
@@ -165,22 +154,25 @@ function renderProductsTable() {
                 <td>${escapeHtml(p.barcode)}</td>
                 <td><strong>${escapeHtml(p.name)}</strong>
                     ${p.description ? `<br><small class="text-muted">${escapeHtml(p.description)}</small>` : ''}
-                 </td>
+                </td>
                 <td>${cat ? escapeHtml(cat.name) : '—'}</td>
                 <td>${fmt(p.price)}</td>
                 <td>${fmt(p.cost)}</td>
                 <td>
                     <span class="${lowStock ? 'text-warning fw-bold' : ''}">${p.stock_quantity}</span>
                     ${lowStock ? '<span class="badge bg-warning text-dark ms-1">Low</span>' : ''}
-                 </td>
+                </td>
                 <td><span class="badge bg-${p.is_active ? 'success' : 'secondary'}">${p.is_active ? 'Active' : 'Inactive'}</span></td>
                 <td class="text-nowrap">
-                    <button class="icon-btn icon-btn-edit" title="Edit"
-                        onclick="INV.openProductModal(${p.id})"><i class="fas fa-edit"></i></button>
-                    <button class="icon-btn icon-btn-warn" title="Adjust Stock"
-                        onclick="INV.openAdjustModal(${p.id})"><i class="fas fa-warehouse"></i></button>
-                    <button class="icon-btn icon-btn-delete" title="Delete"
-                        onclick="INV.deleteProduct(${p.id})"><i class="fas fa-trash"></i></button>
+                    ${hasPermission('canEditProduct') ? `
+                    <button class="icon-btn icon-btn-edit" title="Edit" onclick="INV.openProductModal(${p.id})"><i class="fas fa-edit"></i></button>
+                    ` : ''}
+                    ${hasPermission('canAdjustStock') ? `
+                    <button class="icon-btn icon-btn-warn" title="Adjust Stock" onclick="INV.openAdjustModal(${p.id})"><i class="fas fa-warehouse"></i></button>
+                    ` : ''}
+                    ${hasPermission('canDeleteProduct') ? `
+                    <button class="icon-btn icon-btn-delete" title="Delete" onclick="INV.deleteProduct(${p.id})"><i class="fas fa-trash"></i></button>
+                    ` : ''}
                 </td>
             </tr>
         `;
@@ -211,14 +203,14 @@ function renderArchivedProductsTable() {
                 <td>${fmt(p.cost)}</td>
                 <td>${deletedDate}</td>
                 <td class="text-nowrap">
-                    <button class="icon-btn icon-btn-success" title="Restore"
-                        onclick="INV.restoreProduct(${p.id})">
-                        <i class="fas fa-trash-restore"></i> Restore
+                    ${hasPermission('canRestoreProduct') ? `
+                    <button class="icon-btn icon-btn-success" title="Restore" onclick="INV.restoreProduct(${p.id})">
+                        <i class="fas fa-trash-restore"></i> 
                     </button>
-                    ${currentProfile?.role === 'admin' ? `
-                    <button class="icon-btn icon-btn-danger" title="Permanently Delete"
-                        onclick="INV.permanentlyDeleteArchivedProduct(${p.id}, '${escapeHtml(p.name)}')">
-                        <i class="fas fa-skull-crossbones"></i> Delete Permanently
+                    ` : ''}
+                    ${hasPermission('canPermanentlyDeleteProduct') ? `
+                    <button class="icon-btn icon-btn-danger" title="Permanently Delete" onclick="INV.permanentlyDeleteArchivedProduct(${p.id}, '${escapeHtml(p.name)}')">
+                        <i class="fas fa-skull-crossbones"></i> 
                     </button>
                     ` : ''}
                 </td>
@@ -228,6 +220,10 @@ function renderArchivedProductsTable() {
 }
 
 function openProductModal(id = null) {
+    if (!hasPermission('canAddProduct') && !hasPermission('canEditProduct')) {
+        showToast('You do not have permission to add or edit products.', 'error');
+        return;
+    }
     const fields = {
         productId: '', prodSku: '', prodBarcode: '', prodName: '',
         prodDesc: '', prodPrice: '', prodCost: '', prodStock: '0',
@@ -295,7 +291,15 @@ async function saveProduct() {
 
 // Soft delete – move to deleted-recently table
 async function deleteProduct(id) {
-    const confirmed = await showConfirmationToast('⚠️ Move this product to "Deleted Recently"? It will remain recoverable for 7 days before permanent removal.', 10000);
+    if (!hasPermission('canDeleteProduct')) {
+        showToast('You do not have permission to delete products.', 'error');
+        return;
+    }
+    const confirmed = await showConfirmationToast(
+        ' Delete this product',
+        10000,
+        'Delete'
+    );
     if (!confirmed) return;
 
     const { error } = await supabaseClient
@@ -318,7 +322,11 @@ async function deleteProduct(id) {
 
 // Restore product from deleted-recently table
 async function restoreProduct(id) {
-    const confirmed = await showConfirmationToast('Restore this product to active inventory?', 8000);
+    if (!hasPermission('canRestoreProduct')) {
+        showToast('You do not have permission to restore products.', 'error');
+        return;
+    }
+    const confirmed = await showConfirmationToast('Restore this product to active inventory?', 8000, 'Restore');
     if (!confirmed) return;
 
     const { error } = await supabaseClient
@@ -340,7 +348,7 @@ async function restoreProduct(id) {
 }
 
 // ============================================================
-//  4. STOCK (unchanged logic, only error messages)
+//  4. STOCK
 // ============================================================
 
 async function loadStock() {
@@ -360,7 +368,7 @@ async function loadStock() {
 
     const tbody = document.getElementById('stockTable');
     if (!products?.length) {
-        tbody.innerHTML = '<td><td colspan="6" class="text-center text-muted py-4">No products found</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">No products found</td></tr>';
         return;
     }
 
@@ -377,9 +385,11 @@ async function loadStock() {
                     ? '<span class="badge bg-warning text-dark">Low Stock</span>'
                     : '<span class="badge bg-success">OK</span>'}</td>
                 <td>
+                    ${hasPermission('canAdjustStock') ? `
                     <button class="icon-btn icon-btn-warn" title="Adjust Stock" onclick="INV.openAdjustModal(${p.id})">
                         <i class="fas fa-edit"></i>
                     </button>
+                    ` : ''}
                 </td>
             </tr>
         `;
@@ -387,6 +397,10 @@ async function loadStock() {
 }
 
 function openAdjustModal(productId = null) {
+    if (!hasPermission('canAdjustStock')) {
+        showToast('You do not have permission to adjust stock.', 'error');
+        return;
+    }
     const select = document.getElementById('adjProductSelect');
     select.innerHTML = '<option value="">— Select Product —</option>' +
         allProducts.map(p => `<option value="${p.id}">${escapeHtml(p.name)} (Stock: ${p.stock_quantity})</option>`).join('');
@@ -442,7 +456,7 @@ async function adjustStock() {
 }
 
 // ============================================================
-//  5. SUPPLIERS – with permanent delete
+//  5. SUPPLIERS – with permission checks
 // ============================================================
 
 async function loadSuppliers() {
@@ -473,11 +487,14 @@ async function loadSuppliers() {
             <td><span class="badge bg-${s.is_active ? 'success' : 'secondary'}">
                 ${s.is_active ? 'Active' : 'Inactive'}</span></td>
             <td class="text-nowrap">
-                <button class="icon-btn icon-btn-edit"
-                    onclick="INV.openSupplierModal(${s.id})"><i class="fas fa-edit"></i></button>
-                ${currentProfile?.role === 'admin' ? `
-                <button class="icon-btn icon-btn-danger" title="Permanently Delete"
-                    onclick="INV.permanentlyDeleteSupplier(${s.id}, '${escapeHtml(s.name)}')">
+                ${hasPermission('canEditSupplier') ? `
+                <button class="icon-btn icon-btn-edit" onclick="INV.openSupplierModal(${s.id})"><i class="fas fa-edit"></i></button>
+                ` : ''}
+                ${hasPermission('canDeleteSupplier') ? `
+                <button class="icon-btn icon-btn-delete" onclick="INV.deleteSupplier(${s.id})"><i class="fas fa-trash"></i></button>
+                ` : ''}
+                ${hasPermission('canPermanentlyDeleteSupplier') ? `
+                <button class="icon-btn icon-btn-danger" title="Permanently Delete" onclick="INV.permanentlyDeleteSupplier(${s.id}, '${escapeHtml(s.name)}')">
                     <i class="fas fa-skull-crossbones"></i>
                 </button>
                 ` : ''}
@@ -487,11 +504,19 @@ async function loadSuppliers() {
 }
 
 async function permanentlyDeleteSupplier(supplierId, supplierName) {
+    if (!hasPermission('canPermanentlyDeleteSupplier')) {
+        showToast('You do not have permission to permanently delete suppliers.', 'error');
+        return;
+    }
     const success = await permanentDeleteRecord('suppliers', supplierId, supplierName);
     if (success) await loadSuppliers();
 }
 
 function openSupplierModal(id = null) {
+    if (!hasPermission('canAddSupplier') && !hasPermission('canEditSupplier')) {
+        showToast('You do not have permission to add or edit suppliers.', 'error');
+        return;
+    }
     ['supplierId','suppName','suppContact','suppEmail','suppPhone','suppAddress']
         .forEach(f => { const el = document.getElementById(f); if (el) el.value = ''; });
     document.getElementById('supplierModalTitle').textContent = 'Add Supplier';
@@ -541,7 +566,11 @@ async function saveSupplier() {
 }
 
 async function deleteSupplier(id) {
-    const confirmed = await showConfirmationToast('Delete this supplier? This action cannot be undone.', 8000);
+    if (!hasPermission('canDeleteSupplier')) {
+        showToast('You do not have permission to delete suppliers.', 'error');
+        return;
+    }
+    const confirmed = await showConfirmationToast('Delete this supplier? This action cannot be undone.', 8000, 'Delete');
     if (!confirmed) return;
 
     const { error } = await supabaseClient
@@ -556,7 +585,7 @@ async function deleteSupplier(id) {
 }
 
 // ============================================================
-//  6. PURCHASE ORDERS – with permanent delete
+//  6. PURCHASE ORDERS – with permission checks
 // ============================================================
 
 async function loadPOs() {
@@ -578,7 +607,7 @@ async function loadPOs() {
     const tbody = document.getElementById('poTable');
 
     if (!allPurchaseOrders.length) {
-        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">No purchase orders yet</td></tr>';
+        tbody.innerHTML = '<td><td colspan="7" class="text-center text-muted py-4">No purchase orders yet</td></tr>';
         return;
     }
 
@@ -594,15 +623,14 @@ async function loadPOs() {
                 <td>${po.order_date || '—'}</td>
                 <td>${po.expected_delivery_date || '—'}</td>
                 <td class="text-nowrap">
-                    ${po.status !== 'RECEIVED' && po.status !== 'CANCELLED' ? `
-                    <button class="icon-btn icon-btn-success" title="Mark Received"
-                        onclick="INV.markPOReceived(${po.id})"><i class="fas fa-check"></i></button>
-                    <button class="icon-btn icon-btn-delete" title="Cancel"
-                        onclick="INV.cancelPO(${po.id})"><i class="fas fa-times"></i></button>
-                    ` : '—'}
-                    ${currentProfile?.role === 'admin' ? `
-                    <button class="icon-btn icon-btn-danger" title="Permanently Delete"
-                        onclick="INV.permanentlyDeletePO(${po.id}, '${escapeHtml(po.po_number)}')">
+                    ${hasPermission('canMarkPOReceived') && po.status !== 'RECEIVED' && po.status !== 'CANCELLED' ? `
+                    <button class="icon-btn icon-btn-success" title="Mark Received" onclick="INV.markPOReceived(${po.id})"><i class="fas fa-check"></i></button>
+                    ` : ''}
+                    ${hasPermission('canCancelPO') && po.status !== 'RECEIVED' && po.status !== 'CANCELLED' ? `
+                    <button class="icon-btn icon-btn-delete" title="Cancel" onclick="INV.cancelPO(${po.id})"><i class="fas fa-times"></i></button>
+                    ` : ''}
+                    ${hasPermission('canPermanentlyDeletePO') ? `
+                    <button class="icon-btn icon-btn-danger" title="Permanently Delete" onclick="INV.permanentlyDeletePO(${po.id}, '${escapeHtml(po.po_number)}')">
                         <i class="fas fa-skull-crossbones"></i>
                     </button>
                     ` : ''}
@@ -613,11 +641,19 @@ async function loadPOs() {
 }
 
 async function permanentlyDeletePO(poId, poNumber) {
+    if (!hasPermission('canPermanentlyDeletePO')) {
+        showToast('You do not have permission to permanently delete purchase orders.', 'error');
+        return;
+    }
     const success = await permanentDeleteRecord('purchase_orders', poId, poNumber);
     if (success) await loadPOs();
 }
 
 async function openPOModal() {
+    if (!hasPermission('canCreatePO')) {
+        showToast('You do not have permission to create purchase orders.', 'error');
+        return;
+    }
     if (!allSuppliers.length) await loadSuppliers();
 
     const supplierSelect = document.getElementById('poSupplier');
@@ -670,7 +706,11 @@ async function savePO() {
 }
 
 async function markPOReceived(id) {
-    const confirmed = await showConfirmationToast('Mark this purchase order as received?', 8000);
+    if (!hasPermission('canMarkPOReceived')) {
+        showToast('You do not have permission to mark purchase orders as received.', 'error');
+        return;
+    }
+    const confirmed = await showConfirmationToast('Mark this purchase order as received?', 8000, 'Mark Received');
     if (!confirmed) return;
 
     const { error } = await supabaseClient
@@ -687,7 +727,11 @@ async function markPOReceived(id) {
 }
 
 async function cancelPO(id) {
-    const confirmed = await showConfirmationToast('Cancel this purchase order?', 8000);
+    if (!hasPermission('canCancelPO')) {
+        showToast('You do not have permission to cancel purchase orders.', 'error');
+        return;
+    }
+    const confirmed = await showConfirmationToast('Cancel this purchase order?', 8000, 'Cancel PO');
     if (!confirmed) return;
 
     const { error } = await supabaseClient
@@ -704,7 +748,7 @@ async function cancelPO(id) {
 }
 
 // ============================================================
-//  7. STOCK MOVEMENTS (unchanged)
+//  7. STOCK MOVEMENTS
 // ============================================================
 
 async function loadMovements() {
@@ -745,7 +789,7 @@ async function loadMovements() {
 }
 
 // ============================================================
-//  8. TAB LISTENERS (lazy-load each tab on first show)
+//  8. TAB LISTENERS
 // ============================================================
 
 (function registerTabListeners() {
@@ -774,38 +818,43 @@ async function loadMovements() {
 document.addEventListener('DOMContentLoaded', async () => {
     if (!await requireAuth()) return;
 
+    // Page-level access guard (after profile is loaded)
+    if (!canAccessPage('inventory.html')) {
+        showToast('Access denied.', 'error');
+        setTimeout(() => window.location.href = 'dashboard.html', 1500);
+        return;
+    }
+
     const userNameEl = document.getElementById('userName');
     if (userNameEl) {
         userNameEl.textContent = currentProfile?.first_name || currentUser?.email || 'User';
+    }
+
+    // Apply sidebar access AFTER profile is loaded
+    if (typeof applySidebarAccess === 'function') {
+        applySidebarAccess();
     }
 
     await loadProducts();
 });
 
 // ============================================================
-//  10. PUBLIC API  (called via onclick in HTML)
+//  10. PUBLIC API
 // ============================================================
 
 window.INV = {
-    // Products
     openProductModal,
     saveProduct,
     deleteProduct,
     restoreProduct,
     filterProducts: renderProductsTable,
     permanentlyDeleteArchivedProduct,
-
-    // Stock
     openAdjustModal,
     adjustStock,
-
-    // Suppliers
     openSupplierModal,
     saveSupplier,
     deleteSupplier,
     permanentlyDeleteSupplier,
-
-    // Purchase Orders
     openPOModal,
     savePO,
     markPOReceived,
@@ -814,7 +863,7 @@ window.INV = {
 };
 
 // ============================================================
-//  11. EXCEL EXPORT (unchanged)
+//  11. EXCEL EXPORT
 // ============================================================
 
 async function exportInventoryToExcel() {

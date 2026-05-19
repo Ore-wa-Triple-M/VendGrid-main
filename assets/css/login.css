@@ -95,3 +95,28 @@
     0%,100% { transform: translateY(0); }
     50% { transform: translateY(-20px); }
 }
+/* ── Auth page shared link styles ── */
+.back-to-home-link {
+    color: #6c757d;
+    text-decoration: none;
+    font-size: 0.9rem;
+    transition: color 0.2s;
+}
+.back-to-home-link:hover { color: #007bff; }
+
+.login-logo i { font-size: 1.8rem; margin-right: 0.4rem; }
+.login-logo span { font-size: 1.6rem; }
+
+/* Loading spinner inside buttons */
+.loading {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255,255,255,0.5);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: btn-spin 0.7s linear infinite;
+    vertical-align: middle;
+    margin-right: 4px;
+}
+@keyframes btn-spin { to { transform: rotate(360deg); } }
