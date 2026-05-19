@@ -12,10 +12,10 @@
 </head>
 <body>
 
-<!-- ── Toast Container ──────────────────────────────────────── -->
+<!-- Toast Container -->
 <div id="toastContainer"></div>
 
-<!-- ── Navbar ───────────────────────────────────────────────── -->
+<!-- Navbar -->
 <nav class="navbar navbar-expand-lg navbar-dark bg-primary fixed-top">
     <div class="container-fluid">
         <a class="navbar-brand" href="dashboard.html">
@@ -41,7 +41,7 @@
     </div>
 </nav>
 
-<!-- ── Sidebar ───────────────────────────────────────────────── -->
+<!-- Sidebar -->
 <div class="sidebar">
     <a href="dashboard.html" class="sidebar-item" data-tooltip="Dashboard">
         <i class="fas fa-tachometer-alt"></i><span>Dashboard</span>
@@ -63,7 +63,7 @@
     </a>
 </div>
 
-<!-- ── Main Content ─────────────────────────────────────────── -->
+<!-- Main Content -->
 <div class="main-content">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h1 class="h3 fw-bold">Inventory Management</h1>
@@ -99,10 +99,15 @@
                 <i class="fas fa-exchange-alt me-1"></i>Movements
             </a>
         </li>
+        <li class="nav-item">
+            <a class="nav-link" data-bs-toggle="tab" href="#categories-tab">
+                <i class="fas fa-tags me-1"></i>Categories
+            </a>
+        </li>
     </ul>
 
     <div class="tab-content">
-        <!-- ── Products Tab ─────────────────────────────────── -->
+        <!-- Products Tab (unchanged) -->
         <div class="tab-pane fade show active" id="products-tab">
             <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
                 <div class="d-flex gap-2 flex-wrap">
@@ -138,7 +143,7 @@
                 </div>
             </div>
 
-            <!-- ── Deleted Recently table (soft‑deleted, recoverable for 7 days) ── -->
+            <!-- Deleted Recently table -->
             <div class="card shadow-sm mt-4">
                 <div class="card-header bg-light">
                     <h5 class="mb-0"><i class="fas fa-trash-alt me-2"></i>Deleted Recently (recoverable for 7 days)</h5>
@@ -163,7 +168,7 @@
             </div>
         </div>
 
-        <!-- ── Stock Tab (unchanged) ────────────────────────────────────── -->
+        <!-- Stock Tab -->
         <div class="tab-pane fade" id="stock-tab">
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <h5 class="mb-0">Current Stock Levels</h5>
@@ -184,7 +189,7 @@
                             <tbody id="stockTable">
                                 <tr><td colspan="6" class="text-center py-4">
                                     <div class="spinner-border spinner-border-sm text-primary"></div>
-                                <\/td><\/tr>
+                                </td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -192,7 +197,7 @@
             </div>
         </div>
 
-        <!-- ── Suppliers Tab (unchanged) ────────────────────────────────── -->
+        <!-- Suppliers Tab -->
         <div class="tab-pane fade" id="suppliers-tab">
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <h5 class="mb-0">Suppliers</h5>
@@ -213,7 +218,7 @@
                             <tbody id="suppliersTable">
                                 <tr><td colspan="6" class="text-center py-4">
                                     <div class="spinner-border spinner-border-sm text-primary"></div>
-                                <\/td><\/tr>
+                                </td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -221,7 +226,7 @@
             </div>
         </div>
 
-        <!-- ── Purchase Orders Tab (unchanged) ──────────────────────────── -->
+        <!-- Purchase Orders Tab -->
         <div class="tab-pane fade" id="po-tab">
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <h5 class="mb-0">Purchase Orders</h5>
@@ -240,9 +245,9 @@
                                 </tr>
                             </thead>
                             <tbody id="poTable">
-                                <td><td colspan="7" class="text-center py-4">
+                                <tr><td colspan="7" class="text-center py-4">
                                     <div class="spinner-border spinner-border-sm text-primary"></div>
-                                <\/td><\/tr>
+                                </td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -250,7 +255,7 @@
             </div>
         </div>
 
-        <!-- ── Movements Tab (unchanged) ────────────────────────────────── -->
+        <!-- Movements Tab -->
         <div class="tab-pane fade" id="movements-tab">
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <h5 class="mb-0">Stock Movements <small class="text-muted fw-normal">(last 100)</small></h5>
@@ -268,7 +273,38 @@
                             <tbody id="movementsTable">
                                 <tr><td colspan="6" class="text-center py-4">
                                     <div class="spinner-border spinner-border-sm text-primary"></div>
-                                <\/td><\/tr>
+                                </td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========== NEW: Categories Tab ========== -->
+        <div class="tab-pane fade" id="categories-tab">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="mb-0">Product Categories</h5>
+                <button class="btn btn-primary" id="addCategoryBtn" onclick="INV.openCategoryModal()">
+                    <i class="fas fa-plus me-1"></i>Add Category
+                </button>
+            </div>
+            <div class="card shadow-sm">
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Description</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="categoriesTable">
+                                <tr><td colspan="4" class="text-center py-4">
+                                    <div class="spinner-border spinner-border-sm text-primary"></div>
+                                </td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -278,12 +314,11 @@
     </div><!-- /tab-content -->
 </div><!-- /main-content -->
 
-
 <!-- ═══════════════════════════════════════════════════════════
-     MODALS (unchanged)
+     MODALS
 ═══════════════════════════════════════════════════════════ -->
 
-<!-- ── Product Modal ────────────────────────────────────────── -->
+<!-- Product Modal -->
 <div class="modal fade" id="productModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
@@ -351,7 +386,7 @@
     </div>
 </div>
 
-<!-- ── Stock Adjust Modal ────────────────────────────────────── -->
+<!-- Stock Adjust Modal -->
 <div class="modal fade" id="adjustModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
@@ -384,7 +419,7 @@
     </div>
 </div>
 
-<!-- ── Supplier Modal ────────────────────────────────────────── -->
+<!-- Supplier Modal -->
 <div class="modal fade" id="supplierModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
@@ -427,7 +462,7 @@
     </div>
 </div>
 
-<!-- ── Purchase Order Modal ──────────────────────────────────── -->
+<!-- Purchase Order Modal -->
 <div class="modal fade" id="poModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
@@ -473,7 +508,36 @@
     </div>
 </div>
 
-<!-- ── Confirm Modal ─────────────────────────────────────────── -->
+<!-- NEW: Category Modal -->
+<div class="modal fade" id="categoryModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="categoryModalTitle">Add Category</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="categoryId">
+                <div class="mb-3">
+                    <label class="form-label">Name <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="catName" placeholder="e.g., Electronics, Clothing">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Description</label>
+                    <textarea class="form-control" id="catDesc" rows="2" placeholder="Optional description"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button class="btn btn-primary" onclick="INV.saveCategory()">
+                    <i class="fas fa-save me-1"></i>Save Category
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Confirm Modal -->
 <div class="modal fade" id="confirmModal" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered" style="max-width:400px">
         <div class="modal-content">
@@ -492,7 +556,7 @@
     </div>
 </div>
 
-<!-- ── Scripts ───────────────────────────────────────────────── -->
+<!-- Scripts -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="assets/js/supabase.js"></script>

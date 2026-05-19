@@ -1,16 +1,14 @@
 // =============================================================================
-// POS PAGE LOGIC — FINAL MERGED (Production-Ready)
+// POS PAGE LOGIC – with M-Pesa STK Push integration
 // =============================================================================
 
 // ---------------------------------------------------------------------------
 // STATE
 // ---------------------------------------------------------------------------
-
-
 let products     = [];
 let cart         = [];
 let categories   = [];
-let taxRate      = 16;        // Overwritten by loadSettings(); default is 16 %
+let taxRate      = 16;
 let businessInfo = {
     name:    'VendGrid Store',
     address: '',
@@ -18,13 +16,14 @@ let businessInfo = {
     email:   '',
     logoUrl: null,
 };
-
+let pendingPaymentSaleId = null;
+let paymentCheckInterval = null;
 
 // ---------------------------------------------------------------------------
 // SETTINGS
 // ---------------------------------------------------------------------------
 async function loadSettings() {
-    const settings = await fetchSettings();   // defined in shared utility file
+    const settings = await fetchSettings();
     taxRate = parseFloat(settings.vat_rate) || 16;
     const vatDisplay = document.getElementById('vatRateDisplay');
     if (vatDisplay) vatDisplay.innerText = taxRate;
@@ -59,9 +58,10 @@ async function loadPOSData() {
 // ---------------------------------------------------------------------------
 function renderCategories() {
     const container = document.getElementById('categoryFilter');
+    if (!container) return;
     container.innerHTML = '<button class="btn btn-sm btn-outline-primary active" data-cat="all">All</button>';
     categories.forEach(cat => {
-        container.innerHTML += `<button class="btn btn-sm btn-outline-primary" data-cat="${cat.id}">${cat.name}</button>`;
+        container.innerHTML += `<button class="btn btn-sm btn-outline-primary" data-cat="${cat.id}">${escapeHtml(cat.name)}</button>`;
     });
     document.querySelectorAll('#categoryFilter button').forEach(btn => {
         btn.onclick = () => {
@@ -76,7 +76,7 @@ function renderCategories() {
 // PRODUCTS
 // ---------------------------------------------------------------------------
 function renderProducts() {
-    const search    = document.getElementById('searchInput').value.toLowerCase();
+    const search    = (document.getElementById('searchInput')?.value || '').toLowerCase();
     const activeCat = document.querySelector('#categoryFilter button.active')?.dataset.cat;
     const filtered = products.filter(p => {
         const matchCat    = activeCat === 'all' || p.category_id == activeCat;
@@ -86,11 +86,12 @@ function renderProducts() {
         return matchCat && matchSearch;
     });
     const grid = document.getElementById('productGrid');
+    if (!grid) return;
     grid.innerHTML = filtered.map(p => `
         <div class="product-card ${p.stock_quantity <= 0 ? 'out-of-stock' : ''}"
              onclick="addToCart(${p.id})">
             <i class="fas fa-box fa-2x text-muted"></i>
-            <div class="product-name">${p.name}</div>
+            <div class="product-name">${escapeHtml(p.name)}</div>
             <div class="product-price">${formatCurrency(p.price)}</div>
             <small class="text-muted">Stock: ${p.stock_quantity}</small>
         </div>
@@ -142,10 +143,16 @@ function clearCart() {
     if (tenderedField) tenderedField.value = '0';
     const changeDisplay = document.getElementById('changeAmount');
     if (changeDisplay) changeDisplay.innerText = formatCurrency(0);
+    if (paymentCheckInterval) {
+        clearInterval(paymentCheckInterval);
+        paymentCheckInterval = null;
+        pendingPaymentSaleId = null;
+    }
 }
 
 function renderCart() {
     const container = document.getElementById('cartItems');
+    if (!container) return;
     if (!cart.length) {
         container.innerHTML = `
             <div class="text-center text-muted p-5">
@@ -157,7 +164,7 @@ function renderCart() {
     }
     container.innerHTML = cart.map(item => `
         <div class="cart-item">
-            <div class="cart-item-name">${item.name}</div>
+            <div class="cart-item-name">${escapeHtml(item.name)}</div>
             <div class="d-flex align-items-center gap-2">
                 <button class="quantity-btn" onclick="updateQuantity(${item.id}, -1)"><i class="fas fa-minus"></i></button>
                 <span>${item.quantity}</span>
@@ -171,12 +178,15 @@ function renderCart() {
 
 function updateTotals() {
     const subtotal = cart.reduce((s, i) => s + i.price * i.quantity, 0);
-    const discount = parseFloat(document.getElementById('discount').value) || 0;
+    const discount = parseFloat(document.getElementById('discount')?.value) || 0;
     const tax      = subtotal * (taxRate / 100);
     const total    = subtotal + tax - discount;
-    document.getElementById('subtotal').innerText = formatCurrency(subtotal);
-    document.getElementById('tax').innerText      = formatCurrency(tax);
-    document.getElementById('total').innerText    = formatCurrency(Math.max(0, total));
+    const subtotalEl = document.getElementById('subtotal');
+    const taxEl      = document.getElementById('tax');
+    const totalEl    = document.getElementById('total');
+    if (subtotalEl) subtotalEl.innerText = formatCurrency(subtotal);
+    if (taxEl) taxEl.innerText = formatCurrency(tax);
+    if (totalEl) totalEl.innerText = formatCurrency(Math.max(0, total));
     updateChange();
 }
 
@@ -184,7 +194,7 @@ function updateTotals() {
 // CASH SECTION
 // ---------------------------------------------------------------------------
 function toggleCashSection() {
-    const method  = document.getElementById('paymentMethod').value;
+    const method  = document.getElementById('paymentMethod')?.value;
     const section = document.getElementById('cashChangeSection');
     if (!section) return;
     if (method === 'cash') {
@@ -200,16 +210,16 @@ function toggleCashSection() {
 }
 
 function updateChange() {
-    const totalText     = document.getElementById('total')?.innerText || '0';
-    const total         = parseFloat(totalText.replace(/[^0-9.-]+/g, '')) || 0;
-    const tendered      = parseFloat(document.getElementById('amountTendered')?.value) || 0;
-    const change        = Math.max(0, tendered - total);
+    const totalText = document.getElementById('total')?.innerText || '0';
+    const total = parseFloat(totalText.replace(/[^0-9.]+/g, '')) || 0;
+    const tendered = parseFloat(document.getElementById('amountTendered')?.value) || 0;
+    const change = Math.max(0, tendered - total);
     const changeDisplay = document.getElementById('changeAmount');
     if (changeDisplay) changeDisplay.innerText = formatCurrency(change);
 }
 
 // ---------------------------------------------------------------------------
-// COMPLETE SALE
+// COMPLETE SALE (with M-PESA integration)
 // ---------------------------------------------------------------------------
 async function completeSale() {
     if (!cart.length) {
@@ -217,55 +227,137 @@ async function completeSale() {
         return;
     }
     const method = document.getElementById('paymentMethod').value;
-    const total  = parseFloat(document.getElementById('total').innerText.replace(/[^0-9.-]+/g, '')) || 0;
-    if (method === 'cash') {
-        const tendered = parseFloat(document.getElementById('amountTendered').value) || 0;
-        if (tendered < total) {
-            showNotification(`Insufficient payment. Please enter at least ${formatCurrency(total)}.`, 'error');
+
+    // Parse total
+    const totalText = document.getElementById('total').innerText;
+    const total = parseFloat(totalText.replace(/[^0-9.]+/g, '')) || 0;
+    const discount = parseFloat(document.getElementById('discount').value) || 0;
+    const items = cart.map(i => ({ product_id: i.id, quantity: i.quantity }));
+
+    // ------------------- M-PESA (Mobile) -------------------
+    if (method === 'mobile') {
+        const phone = prompt('Enter M-Pesa phone number (e.g., 0712345678):');
+        if (!phone || !phone.match(/^07|^01|^254/)) {
+            showNotification('Valid phone number required', 'error');
             return;
         }
+
+        // Create pending sale (no inventory deduction)
+        const { data: saleData, error: saleError } = await supabaseClient.rpc('process_sale_pending', {
+            p_cashier_id: currentUser.id,
+            p_items: items,
+            p_discount: discount,
+            p_payment_method: method
+        });
+
+        if (saleError) {
+            showNotification('Sale creation failed: ' + saleError.message, 'error');
+            return;
+        }
+
+        const saleId = saleData.id;
+        const transactionNumber = saleData.transaction_number;
+
+        // Initiate STK push
+        const { data: mpesaRes, error: mpesaError } = await supabaseClient.functions.invoke('initiate-mpesa-payment', {
+            body: {
+                sale_id: saleId,
+                phone_number: phone,
+                amount: total,
+                transaction_number: transactionNumber
+            }
+        });
+
+        if (mpesaError || !mpesaRes || mpesaRes.error) {
+            showNotification('Failed to initiate M-Pesa payment: ' + (mpesaRes?.error || mpesaError?.message), 'error');
+            return;
+        }
+
+        showNotification('STK push sent. Please check your phone and enter PIN.', 'info');
+
+        // Poll for payment status
+        pendingPaymentSaleId = saleId;
+        paymentCheckInterval = setInterval(async () => {
+            const { data: saleCheck, error: checkError } = await supabaseClient
+                .from('sales')
+                .select('payment_status, payment_reference')
+                .eq('id', saleId)
+                .single();
+
+            if (checkError) return;
+
+            if (saleCheck.payment_status === 'completed') {
+                clearInterval(paymentCheckInterval);
+                paymentCheckInterval = null;
+                pendingPaymentSaleId = null;
+                showNotification('Payment successful! Transaction: ' + transactionNumber, 'success');
+                const receiptSnapshot = { items: cart.map(i => ({ ...i })), discount, tendered: 0 };
+                generateReceipt(transactionNumber, receiptSnapshot, 0, saleCheck.payment_reference);
+                clearCart();
+                await loadPOSData();
+            } else if (saleCheck.payment_status === 'failed') {
+                clearInterval(paymentCheckInterval);
+                paymentCheckInterval = null;
+                pendingPaymentSaleId = null;
+                showNotification('Payment failed. Please try again.', 'error');
+            }
+        }, 3000);
+
+        return;
     }
-    const discount = parseFloat(document.getElementById('discount').value) || 0;
-    const items    = cart.map(i => ({ product_id: i.id, quantity: i.quantity }));
+
+    // ------------------- CASH -------------------
+    const tendered = parseFloat(document.getElementById('amountTendered')?.value) || 0;
+    if (method === 'cash' && tendered < total) {
+        showNotification(`Insufficient payment. Please enter at least ${formatCurrency(total)}.`, 'error');
+        return;
+    }
+
     const { data, error } = await supabaseClient.rpc('process_sale', {
-        p_cashier_id:     currentUser.id,
-        p_items:          items,
-        p_discount:       discount,
+        p_cashier_id: currentUser.id,
+        p_items: items,
+        p_discount: discount,
         p_payment_method: method,
     });
+
     if (error) {
         showNotification('Sale failed: ' + error.message, 'error');
         return;
     }
+
     showNotification('Sale completed! Transaction: ' + data.transaction_number);
-    const receiptSnapshot = {
-        items:    cart.map(i => ({ ...i })),
-        discount,
-    };
-    generateReceipt(data.transaction_number, receiptSnapshot);
+    const receiptSnapshot = { items: cart.map(i => ({ ...i })), discount, tendered };
+    generateReceipt(data.transaction_number, receiptSnapshot, tendered);
     clearCart();
     await loadPOSData();
 }
 
 // ---------------------------------------------------------------------------
-// RECEIPT GENERATION (with email/SMS buttons)
+// RECEIPT GENERATION (with payment reference)
 // ---------------------------------------------------------------------------
-function generateReceipt(transactionNumber = null, snapshot = null) {
-    const receiptItems    = (snapshot && snapshot.items.length) ? snapshot.items : cart;
-    const receiptDiscount = snapshot ? snapshot.discount : (parseFloat(document.getElementById('discount').value) || 0);
+function generateReceipt(transactionNumber = null, snapshot = null, amountTendered = null, paymentRef = null) {
+    const receiptItems = (snapshot && snapshot.items && snapshot.items.length) ? snapshot.items : cart;
+    const receiptDiscount = snapshot ? (snapshot.discount || 0) : (parseFloat(document.getElementById('discount').value) || 0);
+    const snapshotTendered = snapshot?.tendered ?? null;
+    const tenderedAmount = snapshotTendered !== null ? snapshotTendered : (amountTendered !== null ? amountTendered : (parseFloat(document.getElementById('amountTendered')?.value) || 0));
+
     if (!receiptItems.length) {
         showNotification('Cart is empty', 'warning');
         return;
     }
+
+    const method = document.getElementById('paymentMethod').value;
     const subtotal = receiptItems.reduce((s, i) => s + i.price * i.quantity, 0);
     const discount = receiptDiscount;
-    const tax      = subtotal * (taxRate / 100);
-    const total    = Math.max(0, subtotal + tax - discount);
-    const method   = document.getElementById('paymentMethod').value;
-    const cashier  = currentProfile?.first_name || currentUser?.email || 'Cashier';
-    const now      = new Date();
-    const dateStr  = now.toLocaleDateString('en-KE', { day: '2-digit', month: 'short', year: 'numeric' });
-    const timeStr  = now.toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit' });
+    const tax = subtotal * (taxRate / 100);
+    const total = Math.max(0, subtotal + tax - discount);
+    const change = method === 'cash' ? Math.max(0, tenderedAmount - total) : 0;
+
+    const cashier = currentProfile?.first_name || currentUser?.email || 'Cashier';
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('en-KE', { day: '2-digit', month: 'short', year: 'numeric' });
+    const timeStr = now.toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit' });
+
     const itemsHTML = receiptItems.map(item => `
         <tr>
             <td class="ps-0">${escapeHtml(item.name)}</td>
@@ -274,21 +366,42 @@ function generateReceipt(transactionNumber = null, snapshot = null) {
             <td class="text-end pe-0">${formatCurrency(item.price * item.quantity)}</td>
         </tr>
     `).join('');
-    const businessName    = escapeHtml(businessInfo.name || 'VendGrid Store');
+
+    const businessName = escapeHtml(businessInfo.name || 'VendGrid Store');
     const businessAddress = businessInfo.address ? `<div class="small text-muted">${escapeHtml(businessInfo.address)}</div>` : '';
-    const businessPhone   = businessInfo.phone ? `<div class="small text-muted">Tel: ${escapeHtml(businessInfo.phone)}</div>` : '';
-    const businessEmail   = businessInfo.email ? `<div class="small text-muted">Email: ${escapeHtml(businessInfo.email)}</div>` : '';
-    const logoHtml = businessInfo.logoUrl 
-        ? `<img src="${businessInfo.logoUrl}" style="max-height: 60px; margin-bottom: 10px;">`
-        : `<i class="fas fa-cash-register fa-2x text-primary mb-2"></i>`;
+    const businessPhone = businessInfo.phone ? `<div class="small text-muted">Tel: ${escapeHtml(businessInfo.phone)}</div>` : '';
+    const businessEmail = businessInfo.email ? `<div class="small text-muted">Email: ${escapeHtml(businessInfo.email)}</div>` : '';
+    const logoHtml = businessInfo.logoUrl ? `<img src="${businessInfo.logoUrl}" style="max-height:60px; margin-bottom:10px;">` : `<i class="fas fa-cash-register fa-2x text-primary mb-2"></i>`;
+
     const txnRow = transactionNumber ? `
         <div class="d-flex justify-content-between mb-1">
             <small class="text-muted">Transaction #:</small>
-            <small>${transactionNumber}</small>
+            <small>${escapeHtml(transactionNumber)}</small>
         </div>` : '';
 
-    // Store receipt data globally for email/SMS functions
-    window._lastReceiptHTML = `
+    const cashRows = method === 'cash' ? `
+        <div class="d-flex justify-content-between mb-1">
+            <small class="text-muted">Cash Paid</small>
+            <small>${formatCurrency(tenderedAmount)}</small>
+        </div>
+        <div class="d-flex justify-content-between mb-1">
+            <small class="text-muted fw-semibold">Change</small>
+            <small class="fw-semibold text-success">${formatCurrency(change)}</small>
+        </div>` : '';
+
+    const paymentRefRow = (method !== 'cash' && paymentRef) ? `
+        <div class="d-flex justify-content-between mb-1">
+            <small class="text-muted">${method === 'mobile' ? 'M-Pesa Receipt No.' : 'Transaction ID'}:</small>
+            <small>${escapeHtml(paymentRef)}</small>
+        </div>` : '';
+
+    const discountRow = discount > 0 ? `
+        <div class="d-flex justify-content-between mb-1">
+            <small class="text-muted">Discount</small>
+            <small class="text-danger">- ${formatCurrency(discount)}</small>
+        </div>` : '';
+
+    const receiptBody = `
         <div class="text-center mb-3">
             ${logoHtml}
             <h5 class="fw-bold mb-0">${businessName}</h5>
@@ -311,16 +424,10 @@ function generateReceipt(transactionNumber = null, snapshot = null) {
             <small class="text-muted">Payment:</small>
             <small class="text-capitalize">${method}</small>
         </div>
+        ${paymentRefRow}
         <hr class="border-dashed">
         <table class="table table-sm mb-0">
-            <thead>
-                <tr class="border-bottom">
-                    <th class="ps-0">Item</th>
-                    <th class="text-center">Qty</th>
-                    <th class="text-end">Price</th>
-                    <th class="text-end pe-0">Total</th>
-                </tr>
-            </thead>
+            <thead><tr class="border-bottom"><th class="ps-0">Item</th><th class="text-center">Qty</th><th class="text-end">Price</th><th class="text-end pe-0">Total</th></tr></thead>
             <tbody>${itemsHTML}</tbody>
         </table>
         <hr class="border-dashed">
@@ -332,91 +439,29 @@ function generateReceipt(transactionNumber = null, snapshot = null) {
             <small class="text-muted">VAT (${taxRate}%)</small>
             <small>${formatCurrency(tax)}</small>
         </div>
-        ${discount > 0 ? `
-        <div class="d-flex justify-content-between mb-1">
-            <small class="text-muted">Discount</small>
-            <small class="text-danger">- ${formatCurrency(discount)}</small>
-        </div>` : ''}
+        ${discountRow}
         <hr class="border-dashed">
-        <div class="d-flex justify-content-between fw-bold fs-5 mb-3">
+        <div class="d-flex justify-content-between fw-bold fs-5 mb-2">
             <span>Total</span>
             <span class="text-primary">${formatCurrency(total)}</span>
         </div>
-     
-        <div class="text-center">
+        ${cashRows}
+        <div class="text-center mt-3">
             <small class="text-muted">Thank you for your purchase!</small>
         </div>
     `;
 
-    document.getElementById('receiptContent').innerHTML = `
-        <div class="text-center mb-3">
-            ${logoHtml}
-            <h5 class="fw-bold mb-0">${businessName}</h5>
-            ${businessAddress}
-            ${businessPhone}
-            ${businessEmail}
-            <small class="text-muted">Official Receipt</small>
-        </div>
-        <hr class="border-dashed">
-        ${txnRow}
-        <div class="d-flex justify-content-between mb-1">
-            <small class="text-muted">Date:</small>
-            <small>${dateStr} ${timeStr}</small>
-        </div>
-        <div class="d-flex justify-content-between mb-1">
-            <small class="text-muted">Cashier:</small>
-            <small>${escapeHtml(cashier)}</small>
-        </div>
-        <div class="d-flex justify-content-between mb-3">
-            <small class="text-muted">Payment:</small>
-            <small class="text-capitalize">${method}</small>
-        </div>
-
-       
-
-        <hr class="border-dashed">
-        <table class="table table-sm mb-0">
-            <thead>
-                <tr class="border-bottom">
-                    <th class="ps-0">Item</th>
-                    <th class="text-center">Qty</th>
-                    <th class="text-end">Price</th>
-                    <th class="text-end pe-0">Total</th>
-                </tr>
-            </thead>
-            <tbody>${itemsHTML}</tbody>
-        </table>
-        <hr class="border-dashed">
-        <div class="d-flex justify-content-between mb-1">
-            <small class="text-muted">Subtotal</small>
-            <small>${formatCurrency(subtotal)}</small>
-        </div>
-        <div class="d-flex justify-content-between mb-1">
-            <small class="text-muted">VAT (${taxRate}%)</small>
-            <small>${formatCurrency(tax)}</small>
-        </div>
-        ${discount > 0 ? `
-        <div class="d-flex justify-content-between mb-1">
-            <small class="text-muted">Discount</small>
-            <small class="text-danger">- ${formatCurrency(discount)}</small>
-        </div>` : ''}
-        <hr class="border-dashed">
-        <div class="d-flex justify-content-between fw-bold fs-5 mb-3">
-            <span>Total</span>
-            <span class="text-primary">${formatCurrency(total)}</span>
-        </div>
-        <div class="text-center">
-            <small class="text-muted">Thank you for your purchase!</small>
-        </div>
-    `;
-
-    // Store transaction number for email/SMS functions
+    window._lastReceiptHTML = receiptBody;
     window._lastTransactionNumber = transactionNumber;
-    new bootstrap.Modal(document.getElementById('receiptModal')).show();
+
+    const receiptContent = document.getElementById('receiptContent');
+    if (receiptContent) receiptContent.innerHTML = receiptBody;
+    const receiptModal = new bootstrap.Modal(document.getElementById('receiptModal'));
+    receiptModal.show();
 }
 
 // ---------------------------------------------------------------------------
-// – Send email/SMS from modal
+// EMAIL / SMS FROM MODAL
 // ---------------------------------------------------------------------------
 async function sendReceiptEmailFromModal(transactionNumber) {
     const email = document.getElementById('receiptEmail')?.value.trim();
@@ -424,11 +469,7 @@ async function sendReceiptEmailFromModal(transactionNumber) {
         showNotification('Please enter an email address', 'warning');
         return;
     }
-    // Use stored receipt HTML (without the email/SMS fields to avoid duplication)
-    let receiptHtml = window._lastReceiptHTML;
-    if (!receiptHtml) {
-        receiptHtml = document.getElementById('receiptContent')?.innerHTML || '';
-    }
+    const receiptHtml = window._lastReceiptHTML || document.getElementById('receiptContent')?.innerHTML || '';
     await window.sendReceiptEmail(email, receiptHtml, transactionNumber);
 }
 
@@ -452,11 +493,7 @@ function printReceipt() {
         <head>
             <title>Receipt - VendGrid</title>
             <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-            <style>
-                body { padding: 20px; font-size: 13px; }
-                .border-dashed { border-style: dashed !important; }
-                @media print { body { padding: 0; } }
-            </style>
+            <style>body { padding: 20px; font-size: 13px; } .border-dashed { border-style: dashed !important; } @media print { body { padding: 0; } }</style>
         </head>
         <body onload="window.print(); window.close();">
             ${content}
@@ -480,7 +517,6 @@ document.getElementById('amountTendered')?.addEventListener('input', updateChang
 document.addEventListener('DOMContentLoaded', async () => {
     if (!await requireAuth()) return;
 
-    // ROLE RESTRICTION
     const allowedRoles = ['admin', 'manager', 'cashier'];
     if (!allowedRoles.includes(currentProfile?.role)) {
         showNotification('Access denied. Only cashiers, managers and admins can use POS.', 'error');
@@ -488,16 +524,22 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
     }
 
-    document.getElementById('userName').innerText = currentProfile?.first_name || currentUser.email;
+    const userNameSpan = document.getElementById('userName');
+    if (userNameSpan) userNameSpan.innerText = currentProfile?.first_name || currentUser.email;
     await loadPOSData();
     toggleCashSection();
-    
-    // Apply sidebar access (hide inaccessible pages)
+
     if (typeof applySidebarAccess === 'function') {
         applySidebarAccess();
     }
 });
 
-// Expose email/SMS functions globally (for inline onclick)
+// Expose functions globally
 window.sendReceiptEmailFromModal = sendReceiptEmailFromModal;
-window.sendReceiptSMSFromModal = sendReceiptSMSFromModal;
+window.sendReceiptSMSFromModal   = sendReceiptSMSFromModal;
+window.addToCart = addToCart;
+window.updateQuantity = updateQuantity;
+window.clearCart = clearCart;
+window.completeSale = completeSale;
+window.generateReceipt = generateReceipt;
+window.printReceipt = printReceipt;
