@@ -2,6 +2,7 @@
  * app.js – VendGrid Global Utilities
  *
  * Phase 3 additions: email/SMS receipt helpers.
+ * Phase 4 additions: M-Pesa payment helpers.
  */
 
 // ============================================================
@@ -40,11 +41,6 @@ function showNotification(message, type = 'success') {
 /**
  * Show a centred confirmation dialog (non-blocking).
  * Resolves true if the user clicks Confirm, false if Cancel or it times out.
- *
- * @param {string} message      - Prompt text shown to the user.
- * @param {number} timeoutMs    - Auto-dismiss in ms (default 8000).
- * @param {string} confirmLabel - Text for the confirm button (default 'Delete').
- * @returns {Promise<boolean>}
  */
 function showConfirmationToast(message, timeoutMs = 8000, confirmLabel = 'Delete') {
     return new Promise((resolve) => {
@@ -240,16 +236,9 @@ async function updateGlobalBranding() {
 }
 
 // ============================================================
-//  PHASE 3 – EMAIL & SMS RECEIPTS (placeholder webhooks)
+//  EMAIL & SMS RECEIPTS (placeholder webhooks)
 // ============================================================
 
-/**
- * Send receipt via email using a configurable webhook.
- * @param {string} email - Recipient email address.
- * @param {string} receiptHtml - HTML content of the receipt.
- * @param {string} transactionNumber - Sale transaction number.
- * @returns {Promise<boolean>}
- */
 async function sendReceiptEmail(email, receiptHtml, transactionNumber) {
     const { data: settings } = await supabaseClient
         .from('settings')
@@ -285,12 +274,6 @@ async function sendReceiptEmail(email, receiptHtml, transactionNumber) {
     }
 }
 
-/**
- * Send receipt via SMS using a configurable webhook.
- * @param {string} phone - Recipient phone number (international format).
- * @param {string} shortSummary - Short text summary (total, transaction #).
- * @returns {Promise<boolean>}
- */
 async function sendReceiptSMS(phone, shortSummary) {
     const { data: settings } = await supabaseClient
         .from('settings')
@@ -322,10 +305,39 @@ async function sendReceiptSMS(phone, shortSummary) {
     }
 }
 
-// Expose email/SMS functions globally
+// ============================================================
+//  PAYMENT HELPERS (Phase 4)
+// ============================================================
+
+/**
+ * Check payment status for a pending sale (used by POS polling).
+ */
+async function checkPaymentStatus(saleId) {
+    const { data, error } = await supabaseClient
+        .from('sales')
+        .select('payment_status, payment_reference')
+        .eq('id', saleId)
+        .single();
+    if (error) throw error;
+    return data;
+}
+
+/**
+ * Initiate M-Pesa STK push (called from POS).
+ */
+async function initiateMpesaPayment(saleId, phoneNumber, amount, transactionNumber) {
+    const { data, error } = await supabaseClient.functions.invoke('initiate-mpesa-payment', {
+        body: { sale_id: saleId, phone_number: phoneNumber, amount, transaction_number: transactionNumber }
+    });
+    if (error) throw error;
+    return data;
+}
+
+// Expose all global functions
 window.sendReceiptEmail = sendReceiptEmail;
 window.sendReceiptSMS = sendReceiptSMS;
-
+window.checkPaymentStatus = checkPaymentStatus;
+window.initiateMpesaPayment = initiateMpesaPayment;
 window.updateGlobalBranding = updateGlobalBranding;
 window.initIdleTimer        = initIdleTimer;
 window.permanentDeleteRecord = permanentDeleteRecord;

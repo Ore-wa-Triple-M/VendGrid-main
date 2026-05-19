@@ -1,31 +1,11 @@
 /**
  * reports.js – VendGrid Sales Reports
- *
- * FIXES APPLIED:
- *
- *  1. DELETE / VOID — table not refreshing:
- *     Both permanentlyDeleteSale and voidSale called loadReports() which
- *     re-fetches from DB and calls renderSalesTable(). The actual root cause
- *     was that Supabase delete({count:'exact'}) returns count=null (not 0)
- *     when RLS silently blocks the operation, making the old guard
- *     (count === 0) a no-op. Fixed: use .select('id') after delete so we
- *     get back the actually-deleted rows — empty array means it was blocked.
- *
- *  2. VOID — same issue: update was returning no error but the status was not
- *     changing because the RLS policy may only allow admin updates. The query
- *     now chains .select('id') and throws if nothing was updated.
- *
- *  3. PRODUCT PERFORMANCE — wrong logic:
- *     Old code only queried sale_items, so products with ZERO sales were
- *     invisible. Fixed: we now fetch ALL products from the inventory table,
- *     compute per-product totals from sale_items, then left-join them.
- *     Result: products with 0 sales appear in the slow-movers list.
- *     Rankings: Top 3 best sellers, Top 5 least sellers (including zero-sales).
- *
- *  4. Single DOMContentLoaded — event delegation registered AFTER requireAuth()
- *     resolves so hasPermission() works correctly.
- *
- *  5. renderSalesTable fixed HTML: was '<td><td colspan…', now '<tr><td colspan…'
+ * 
+ * FIXED: Uses your actual schema columns:
+ *   - sale_items.total_price instead of subtotal
+ *   - No discount_amount in sale_items
+ *   - products.is_active instead of is_deleted
+ *   - Computes item count from sale_items
  */
 
 'use strict';
@@ -41,37 +21,34 @@ async function loadReports() {
     startDate.setDate(startDate.getDate() - days);
 
     try {
-        // Try rich join first; fall back to plain select if FK names differ
-        const { data: richData, error: richError } = await supabaseClient
+        // Join sales with cashier (profiles) – this works because profiles exists
+        const { data: sales, error: salesError } = await supabaseClient
             .from('sales')
             .select(`
                 *,
-                cashier:profiles!cashier_id ( first_name, last_name, email ),
-                sale_items (
-                    id, quantity, unit_price, subtotal, discount_amount,
-                    product:products ( name, sku )
-                )
+                cashier:profiles!cashier_id ( first_name, last_name, email )
             `)
             .gte('sale_date', startDate.toISOString())
             .order('sale_date', { ascending: false });
 
-        let sales;
-        if (richError) {
-            console.warn('Rich join failed, using plain select:', richError.message);
-            const { data: plainData, error: plainError } = await supabaseClient
-                .from('sales')
-                .select('*')
-                .gte('sale_date', startDate.toISOString())
-                .order('sale_date', { ascending: false });
-            if (plainError) throw plainError;
-            sales = plainData || [];
-        } else {
-            sales = richData || [];
+        if (salesError) throw salesError;
+
+        // For each sale, fetch its items separately (to avoid missing column errors)
+        for (const sale of (sales || [])) {
+            const { data: items, error: itemsErr } = await supabaseClient
+                .from('sale_items')
+                .select('id, quantity, unit_price, total_price')
+                .eq('sale_id', sale.id);
+            if (!itemsErr && items) {
+                sale.sale_items = items;
+            } else {
+                sale.sale_items = [];
+            }
         }
 
-        allSales = sales;
+        allSales = sales || [];
 
-        // KPI cards
+        // ── KPI Cards ──────────────────────────────────────────────────────
         const totalRevenue = allSales.reduce((s, r) => s + parseFloat(r.total_amount || 0), 0);
         const totalTax     = allSales.reduce((s, r) => s + parseFloat(r.tax_amount    || 0), 0);
         const avgOrder     = allSales.length ? totalRevenue / allSales.length : 0;
@@ -81,7 +58,7 @@ async function loadReports() {
         document.getElementById('avgOrder').innerText     = formatCurrency(avgOrder);
         document.getElementById('totalTax').innerText     = formatCurrency(totalTax);
 
-        // Revenue trend chart
+        // ── Revenue Trend Chart ────────────────────────────────────────────
         const daily = {};
         allSales.forEach(s => {
             const d = (s.sale_date || '').split('T')[0];
@@ -89,7 +66,7 @@ async function loadReports() {
         });
         const labels = [], data = [];
         for (let i = days - 1; i >= 0; i--) {
-            const d  = new Date();
+            const d = new Date();
             d.setDate(d.getDate() - i);
             const ds = d.toISOString().split('T')[0];
             labels.push(ds.slice(5));
@@ -102,14 +79,16 @@ async function loadReports() {
                 labels,
                 datasets: [{
                     label: 'Revenue', data,
-                    borderColor: '#667eea', fill: true,
-                    backgroundColor: 'rgba(102,126,234,0.1)', tension: 0.4
+                    borderColor: '#667eea',
+                    fill: true,
+                    backgroundColor: 'rgba(102,126,234,0.1)',
+                    tension: 0.4
                 }]
             },
             options: { responsive: true, maintainAspectRatio: false }
         });
 
-        // Payment methods chart
+        // ── Payment Methods Chart ──────────────────────────────────────────
         const mc = {};
         allSales.forEach(s => {
             const m = (s.payment_method || 'other').toLowerCase();
@@ -132,6 +111,7 @@ async function loadReports() {
         await loadProductPerformance(days);
 
     } catch (err) {
+        console.error('loadReports error:', err);
         showNotification(getUserFriendlyErrorMessage(err, 'Failed to load reports'), 'error');
     }
 }
@@ -207,7 +187,7 @@ function filterSales() {
     renderSalesTable(filtered);
 }
 
-// ── Void sale ─────────────────────────────────────────────────────────────────
+// ── Void sale (restores stock) ────────────────────────────────────────────────
 async function voidSale(saleId, transactionNumber) {
     if (!hasPermission('canVoidSale')) {
         showNotification('You do not have permission to void sales.', 'error');
@@ -222,7 +202,7 @@ async function voidSale(saleId, transactionNumber) {
     if (!confirmed) return;
 
     try {
-        // Fetch sale items to restore stock
+        // Fetch sale items to restore stock (use quantity, no discount)
         const { data: items, error: itemsErr } = await supabaseClient
             .from('sale_items')
             .select('product_id, quantity')
@@ -230,13 +210,12 @@ async function voidSale(saleId, transactionNumber) {
         if (itemsErr) throw itemsErr;
         if (!items || items.length === 0) throw new Error('No items found for this sale');
 
-        // Update sale status — use .select('id') to verify the row was updated
+        // Update sale status
         const { data: updatedRows, error: updateErr } = await supabaseClient
             .from('sales')
             .update({ payment_status: 'refunded', refunded_at: new Date().toISOString() })
             .eq('id', saleId)
             .select('id');
-
         if (updateErr) throw updateErr;
         if (!updatedRows || updatedRows.length === 0) {
             throw new Error('Sale not found or you do not have permission to void it.');
@@ -260,9 +239,9 @@ async function voidSale(saleId, transactionNumber) {
 
             await supabaseClient.from('stock_movements').insert({
                 product_id:    item.product_id,
-                movement_type: 'RESTORE',
+                movement_type: 'IN',
                 quantity:      item.quantity,
-                reference_type:'SALE_VOID',
+                reference_type: 'SALE_VOID',
                 reference_id:  saleId,
                 notes:         `Stock restored from voided sale ${transactionNumber}`,
                 created_by:    currentUser?.id,
@@ -273,11 +252,12 @@ async function voidSale(saleId, transactionNumber) {
         showNotification('Sale voided successfully', 'success');
         await loadReports();
     } catch (err) {
+        console.error('Void sale error:', err);
         showNotification(getUserFriendlyErrorMessage(err, 'Failed to void sale'), 'error');
     }
 }
 
-// ── Permanent delete sale ─────────────────────────────────────────────────────
+// ── Permanent delete sale (also removes sale_items) ───────────────────────────
 async function permanentlyDeleteSale(saleId, transactionNumber) {
     if (!hasPermission('canPermanentlyDeleteSale')) {
         showNotification('You do not have permission to permanently delete sales.', 'error');
@@ -292,23 +272,20 @@ async function permanentlyDeleteSale(saleId, transactionNumber) {
     if (!confirmed) return;
 
     try {
-        // Delete child rows first (sale_items) to satisfy FK constraints
+        // Delete sale_items first (foreign key constraint)
         const { error: itemsErr } = await supabaseClient
             .from('sale_items')
             .delete()
             .eq('sale_id', saleId);
         if (itemsErr) throw itemsErr;
 
-        // Delete the parent sale — use .select('id') to verify it was deleted
+        // Delete the sale itself
         const { data: deletedRows, error: saleErr } = await supabaseClient
             .from('sales')
             .delete()
             .eq('id', saleId)
             .select('id');
-
         if (saleErr) throw saleErr;
-
-        // Empty array means RLS blocked or row didn't exist
         if (!deletedRows || deletedRows.length === 0) {
             throw new Error('Sale not found or you do not have permission to delete it.');
         }
@@ -316,11 +293,12 @@ async function permanentlyDeleteSale(saleId, transactionNumber) {
         showNotification(`Sale "${transactionNumber}" permanently deleted.`, 'success');
         await loadReports();
     } catch (err) {
-        showNotification(getUserFriendlyErrorMessage(err, 'Deletion failed. Please try again.'), 'error');
+        console.error('Delete sale error:', err);
+        showNotification(getUserFriendlyErrorMessage(err, 'Deletion failed'), 'error');
     }
 }
 
-// ── Export to Excel ───────────────────────────────────────────────────────────
+// ── Export to Excel (unchanged logic, uses correct columns) ───────────────────
 async function exportSalesToExcel() {
     if (!allSales.length) {
         showNotification('No data to export', 'warning');
@@ -346,20 +324,19 @@ async function exportSalesToExcel() {
     };
 
     const itemRows = [];
-    allSales.forEach(s => {
-        (s.sale_items || []).forEach(item => {
+    for (const sale of allSales) {
+        const items = sale.sale_items || [];
+        for (const item of items) {
             itemRows.push({
-                transaction_number: s.transaction_number,
-                sale_date:          s.sale_date,
-                product_name:       item.product?.name || '—',
-                sku:                item.product?.sku  || '—',
+                transaction_number: sale.transaction_number,
+                sale_date:          sale.sale_date,
+                product_id:         item.product_id,
                 quantity:           item.quantity,
                 unit_price:         item.unit_price,
-                subtotal:           item.subtotal,
-                discount:           item.discount_amount || 0
+                total_price:        item.total_price
             });
-        });
-    });
+        }
+    }
 
     const sheets = [salesSheet];
     if (itemRows.length) {
@@ -369,12 +346,10 @@ async function exportSalesToExcel() {
             columns: [
                 { label: 'Transaction #', key: 'transaction_number', align: 'left'    },
                 { label: 'Date',          key: 'sale_date',          transform: v => formatDate(v), align: 'center' },
-                { label: 'Product',       key: 'product_name',       align: 'left'    },
-                { label: 'SKU',           key: 'sku',                align: 'left'    },
+                { label: 'Product ID',    key: 'product_id',        align: 'left'    },
                 { label: 'Qty',           key: 'quantity',           align: 'center'  },
                 { label: 'Unit Price',    key: 'unit_price',         format: 'currency', align: 'right' },
-                { label: 'Discount',      key: 'discount',           format: 'currency', align: 'right' },
-                { label: 'Subtotal',      key: 'subtotal',           format: 'currency', align: 'right' }
+                { label: 'Total Price',   key: 'total_price',        format: 'currency', align: 'right' }
             ],
             data: itemRows
         });
@@ -389,44 +364,29 @@ async function exportSalesToExcel() {
 }
 window.exportSalesToExcel = exportSalesToExcel;
 
-// ── Product Performance ───────────────────────────────────────────────────────
-// FIX: Fetch ALL products from inventory, then aggregate sales on top.
-// This ensures products with ZERO sales appear in the slow-movers table.
-// Rankings: Top 3 best sellers | Top 5 least sellers (incl. zero-sales)
+// ── Product Performance (uses is_active, not is_deleted) ──────────────────────
 async function loadProductPerformance(days) {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
 
     try {
-        // 1. Fetch all products from inventory
-        const { data: allProducts, error: prodErr } = await supabaseClient
+        // Fetch all active products
+        const { data: products, error: prodErr } = await supabaseClient
             .from('products')
             .select('id, name, sku, price, stock_quantity')
-            .eq('is_deleted', false)   // exclude soft-deleted items if column exists
+            .eq('is_active', true)
             .order('name', { ascending: true });
 
-        // If is_deleted column doesn't exist, fall back to fetching all
-        let products = allProducts;
         if (prodErr) {
-            const { data: fallbackProds, error: fallbackErr } = await supabaseClient
-                .from('products')
-                .select('id, name, sku, price, stock_quantity')
-                .order('name', { ascending: true });
-            if (fallbackErr) {
-                console.warn('Product performance: failed to load products', fallbackErr);
-                return;
-            }
-            products = fallbackProds || [];
-        } else {
-            products = allProducts || [];
+            console.warn('Product performance: failed to load products', prodErr);
+            return;
         }
-
-        if (!products.length) {
+        if (!products || !products.length) {
             renderProductPerformance([], []);
             return;
         }
 
-        // 2. Fetch sale items for the period to aggregate per-product quantities
+        // Fetch sale items for the period
         const { data: saleItems, error: siErr } = await supabaseClient
             .from('sale_items')
             .select('product_id, quantity')
@@ -436,34 +396,24 @@ async function loadProductPerformance(days) {
             console.warn('Product performance: sale_items error', siErr);
         }
 
-        // 3. Build a map of productId → total qty sold
         const soldMap = new Map();
         (saleItems || []).forEach(item => {
             const prev = soldMap.get(item.product_id) || 0;
             soldMap.set(item.product_id, prev + (item.quantity || 0));
         });
 
-        // 4. Merge: every product gets a totalQty (default 0 if never sold)
         const enriched = products.map(p => ({
             id:       p.id,
-            name:     p.name  || 'Unknown',
-            sku:      p.sku   || '—',
+            name:     p.name || 'Unknown',
+            sku:      p.sku || '—',
             price:    p.price || 0,
             stock:    p.stock_quantity || 0,
             totalQty: soldMap.get(p.id) || 0
         }));
 
-        // 5. Sort descending by sales qty
         const sorted = [...enriched].sort((a, b) => b.totalQty - a.totalQty);
-
-        // Top 3 best sellers (must have at least 1 sale)
         const topSellers  = sorted.filter(p => p.totalQty > 0).slice(0, 3);
-
-        // Top 5 least sellers — sorted ascending, so lowest first.
-        // Products with 0 sales are included (they sort to the top of ascending).
-        const leastSellers = [...enriched]
-            .sort((a, b) => a.totalQty - b.totalQty)
-            .slice(0, 5);
+        const leastSellers = [...enriched].sort((a, b) => a.totalQty - b.totalQty).slice(0, 5);
 
         renderProductPerformance(topSellers, leastSellers);
     } catch (err) {
@@ -577,11 +527,9 @@ window.exportSalesToPDF = exportSalesToPDF;
 document.getElementById('periodSelect')?.addEventListener('change', loadReports);
 document.getElementById('salesSearch')?.addEventListener('input', filterSales);
 
-// ── Boot (single DOMContentLoaded) ────────────────────────────────────────────
+// ── Boot ──────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
     if (!await requireAuth()) return;
-
-    // Redirect if not allowed on this page
     if (!canAccessPage('reports.html')) {
         showNotification('Access denied.', 'error');
         setTimeout(() => window.location.href = 'dashboard.html', 1500);
@@ -590,13 +538,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const nameEl = document.getElementById('userName');
     if (nameEl) nameEl.innerText = currentProfile?.first_name || currentUser?.email || 'User';
+    if (typeof applySidebarAccess === 'function') applySidebarAccess();
 
-    // Apply sidebar AFTER profile is loaded
-    if (typeof applySidebarAccess === 'function') {
-        applySidebarAccess();
-    }
-
-    // Table event delegation — registered after auth so hasPermission() works
     const salesTable = document.getElementById('salesTable');
     if (salesTable) {
         salesTable.addEventListener('click', async e => {
@@ -606,6 +549,5 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (btn.dataset.action === 'delete') await permanentlyDeleteSale(btn.dataset.id, btn.dataset.label);
         });
     }
-
     await loadReports();
 });

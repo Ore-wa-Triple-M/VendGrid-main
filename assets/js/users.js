@@ -187,9 +187,10 @@ async function permanentlyDeleteUser(userId, userName) {
 
         showNotification(`"${userName}" has been permanently removed.`, 'success');
         await loadUsers();
-    } catch (err) {
-        showNotification(getUserFriendlyErrorMessage(err, 'Deletion failed'), 'error');
-    }
+ } catch (err) {
+    console.error('Delete user detailed error:', err);
+    showNotification(getUserFriendlyErrorMessage(err, 'Failed to delete user: ' + (err.message || 'Unknown error')), 'error');
+}
 }
 
 // ── Boot (single DOMContentLoaded) ────────────────────────────────────────────

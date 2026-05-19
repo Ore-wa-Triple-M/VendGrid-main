@@ -2,6 +2,7 @@
  * inventory.js – VendGrid Inventory Module (merged & optimised)
  * 
  * Full RBAC integration: page access check + permission-based UI.
+ * Categories Management System – permission checks removed to work with existing RBAC.
  */
 
 'use strict';
@@ -36,7 +37,7 @@ function fmt(amount) {
 
 function showTableSpinner(tbodyId, cols) {
     const el = document.getElementById(tbodyId);
-    if (el) el.innerHTML = `<tr><td colspan="${cols}" class="text-center py-4"><div class="spinner-border spinner-border-sm text-primary"></div></td></tr>`;
+    if (el) el.innerHTML = `<td><td colspan="${cols}" class="text-center py-4"><div class="spinner-border spinner-border-sm text-primary"></div></td></tr>`;
 }
 
 // ============================================================
@@ -51,28 +52,197 @@ let allPurchaseOrders  = [];
 let allStockMovements  = [];
 
 // ============================================================
-//  3. PRODUCTS – CRUD with soft delete & restore
+//  3. CATEGORIES MANAGEMENT (Permissions removed)
+// ============================================================
+
+async function loadCategories() {
+    const { data, error } = await supabaseClient
+        .from('categories')
+        .select('*')
+        .eq('is_active', true)
+        .order('name');
+
+    if (error) {
+        showToast(getUserFriendlyErrorMessage(error, 'Could not load categories.'), 'error');
+        return [];
+    }
+    allCategories = data || [];
+    return allCategories;
+}
+
+function renderCategoriesTable() {
+    const tbody = document.getElementById('categoriesTable');
+    if (!tbody) return;
+
+    if (!allCategories.length) {
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-4">No categories found. Click "Add Category" to create one.</td></tr>';
+        return;
+    }
+
+    // Show edit/delete buttons for all users – permission checks removed
+    tbody.innerHTML = allCategories.map(cat => `
+        <tr>
+            <td><strong>${escapeHtml(cat.name)}</strong></td>
+            <td>${escapeHtml(cat.description || '—')}</td>
+            <td><span class="badge bg-success">Active</span></td>
+            <td class="text-nowrap">
+                <button class="icon-btn icon-btn-edit" title="Edit Category" onclick="INV.openCategoryModal(${cat.id})">
+                    <i class="fas fa-edit"></i>
+                </button>
+                <button class="icon-btn icon-btn-delete" title="Delete Category" onclick="INV.deleteCategory(${cat.id}, '${escapeHtml(cat.name)}')">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function openCategoryModal(id = null) {
+    // No permission check – allow any authenticated user to manage categories
+    document.getElementById('categoryId').value = '';
+    document.getElementById('catName').value = '';
+    document.getElementById('catDesc').value = '';
+    document.getElementById('categoryModalTitle').textContent = 'Add Category';
+
+    if (id) {
+        const cat = allCategories.find(c => c.id === id);
+        if (!cat) {
+            showToast('Category not found.', 'error');
+            return;
+        }
+        document.getElementById('categoryId').value = cat.id;
+        document.getElementById('catName').value = cat.name;
+        document.getElementById('catDesc').value = cat.description || '';
+        document.getElementById('categoryModalTitle').textContent = 'Edit Category';
+    }
+
+    new bootstrap.Modal(document.getElementById('categoryModal')).show();
+}
+
+async function saveCategory() {
+    const id = document.getElementById('categoryId').value;
+    const name = document.getElementById('catName').value.trim();
+    const description = document.getElementById('catDesc').value.trim() || null;
+
+    if (!name) {
+        showToast('Category name is required.', 'warning');
+        return;
+    }
+
+    // Check for duplicate name (case‑insensitive)
+    const duplicate = allCategories.some(cat => cat.name.toLowerCase() === name.toLowerCase() && (id ? cat.id != id : true));
+    if (duplicate) {
+        showToast('A category with this name already exists.', 'warning');
+        return;
+    }
+
+    const now = new Date().toISOString();
+    let result;
+    if (id) {
+        // Update – do NOT include 'id' in the update object
+        const updateData = {
+            name: name,
+            description: description,
+            updated_at: now
+        };
+        result = await supabaseClient
+            .from('categories')
+            .update(updateData)
+            .eq('id', id);
+    } else {
+        // Insert – do NOT include 'id' at all (auto‑increment)
+        const insertData = {
+            name: name,
+            description: description,
+            is_active: true,
+            created_at: now,
+            updated_at: now
+        };
+        result = await supabaseClient
+            .from('categories')
+            .insert(insertData);
+    }
+
+    if (result.error) {
+        console.error('Save category error:', result.error);
+        showToast(getUserFriendlyErrorMessage(result.error, 'Failed to save category.'), 'error');
+        return;
+    }
+
+    bootstrap.Modal.getInstance(document.getElementById('categoryModal')).hide();
+    showToast(id ? 'Category updated' : 'Category created', 'success');
+    await loadCategories();
+    renderCategoriesTable();
+    refreshCategoryDependentUI();
+}
+async function deleteCategory(id, name) {
+    // No permission check – rely on database RLS if needed
+    // Prevent deletion if any active product uses this category
+    const { data: productsUsing, error: checkError } = await supabaseClient
+        .from('products')
+        .select('id', { count: 'exact', head: true })
+        .eq('category_id', id)
+        .eq('is_active', true)
+        .is('deleted_at', null);
+
+    if (checkError) {
+        showToast('Error checking category usage.', 'error');
+        return;
+    }
+
+    if (productsUsing && productsUsing.length > 0) {
+        showToast(`Cannot delete "${name}": it is used by ${productsUsing.length} product(s). Reassign or delete those products first.`, 'warning');
+        return;
+    }
+
+    const confirmed = await showConfirmationToast(`Deactivate category "${name}"?`, 8000, 'Deactivate');
+    if (!confirmed) return;
+
+    const { error } = await supabaseClient
+        .from('categories')
+        .update({ is_active: false, updated_at: new Date().toISOString() })
+        .eq('id', id);
+
+    if (error) {
+        showToast(getUserFriendlyErrorMessage(error, 'Failed to delete category.'), 'error');
+        return;
+    }
+
+    showToast('Category deactivated', 'success');
+    await loadCategories();
+    renderCategoriesTable();
+    refreshCategoryDependentUI();
+}
+
+function refreshCategoryDependentUI() {
+    _populateCategoryDropdowns();
+    const productsTab = document.getElementById('products-tab');
+    if (productsTab && productsTab.classList.contains('active')) {
+        renderProductsTable();
+    }
+}
+
+// ============================================================
+//  4. PRODUCTS – CRUD with soft delete & restore
 // ============================================================
 
 async function loadProducts() {
     showTableSpinner('productsTable', 9);
 
-    const [{ data: products, error: prodErr }, { data: categories }] = await Promise.all([
-        supabaseClient
-            .from('products')
-            .select('*, categories(name)')
-            .eq('is_active', true)
-            .is('deleted_at', null),
-        supabaseClient.from('categories').select('*').eq('is_active', true)
-    ]);
+    await loadCategories();
+
+    const { data: products, error: prodErr } = await supabaseClient
+        .from('products')
+        .select('*, categories(name)')
+        .eq('is_active', true)
+        .is('deleted_at', null);
 
     if (prodErr) {
         showToast(getUserFriendlyErrorMessage(prodErr, 'Could not load products. Please check your connection.'), 'error');
         return;
     }
 
-    allProducts   = products   || [];
-    allCategories = categories || [];
+    allProducts = products || [];
 
     _populateCategoryDropdowns();
     renderProductsTable();
@@ -289,17 +459,12 @@ async function saveProduct() {
     }
 }
 
-// Soft delete – move to deleted-recently table
 async function deleteProduct(id) {
     if (!hasPermission('canDeleteProduct')) {
         showToast('You do not have permission to delete products.', 'error');
         return;
     }
-    const confirmed = await showConfirmationToast(
-        ' Delete this product',
-        10000,
-        'Delete'
-    );
+    const confirmed = await showConfirmationToast('Delete this product?', 10000, 'Delete');
     if (!confirmed) return;
 
     const { error } = await supabaseClient
@@ -320,7 +485,6 @@ async function deleteProduct(id) {
     }
 }
 
-// Restore product from deleted-recently table
 async function restoreProduct(id) {
     if (!hasPermission('canRestoreProduct')) {
         showToast('You do not have permission to restore products.', 'error');
@@ -348,7 +512,7 @@ async function restoreProduct(id) {
 }
 
 // ============================================================
-//  4. STOCK
+//  5. STOCK
 // ============================================================
 
 async function loadStock() {
@@ -456,7 +620,7 @@ async function adjustStock() {
 }
 
 // ============================================================
-//  5. SUPPLIERS – with permission checks
+//  6. SUPPLIERS – with permission checks
 // ============================================================
 
 async function loadSuppliers() {
@@ -585,7 +749,7 @@ async function deleteSupplier(id) {
 }
 
 // ============================================================
-//  6. PURCHASE ORDERS – with permission checks
+//  7. PURCHASE ORDERS – with permission checks
 // ============================================================
 
 async function loadPOs() {
@@ -607,7 +771,7 @@ async function loadPOs() {
     const tbody = document.getElementById('poTable');
 
     if (!allPurchaseOrders.length) {
-        tbody.innerHTML = '<td><td colspan="7" class="text-center text-muted py-4">No purchase orders yet</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">No purchase orders yet</td></tr>';
         return;
     }
 
@@ -748,7 +912,7 @@ async function cancelPO(id) {
 }
 
 // ============================================================
-//  7. STOCK MOVEMENTS
+//  8. STOCK MOVEMENTS
 // ============================================================
 
 async function loadMovements() {
@@ -789,7 +953,7 @@ async function loadMovements() {
 }
 
 // ============================================================
-//  8. TAB LISTENERS
+//  9. TAB LISTENERS
 // ============================================================
 
 (function registerTabListeners() {
@@ -798,11 +962,17 @@ async function loadMovements() {
         '#stock-tab':     loadStock,
         '#suppliers-tab': loadSuppliers,
         '#po-tab':        loadPOs,
-        '#movements-tab': loadMovements
+        '#movements-tab': loadMovements,
+        '#categories-tab': async () => {
+            await loadCategories();
+            renderCategoriesTable();
+        }
     };
     Object.entries(tabMap).forEach(([href, fn]) => {
-        document.querySelector(`[href="${href}"]`)
-            ?.addEventListener('shown.bs.tab', fn);
+        const tabLink = document.querySelector(`[href="${href}"]`);
+        if (tabLink) {
+            tabLink.addEventListener('shown.bs.tab', fn);
+        }
     });
 
     document.getElementById('productSearch')
@@ -812,13 +982,12 @@ async function loadMovements() {
 })();
 
 // ============================================================
-//  9. BOOT
+//  10. BOOT
 // ============================================================
 
 document.addEventListener('DOMContentLoaded', async () => {
     if (!await requireAuth()) return;
 
-    // Page-level access guard (after profile is loaded)
     if (!canAccessPage('inventory.html')) {
         showToast('Access denied.', 'error');
         setTimeout(() => window.location.href = 'dashboard.html', 1500);
@@ -830,7 +999,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         userNameEl.textContent = currentProfile?.first_name || currentUser?.email || 'User';
     }
 
-    // Apply sidebar access AFTER profile is loaded
     if (typeof applySidebarAccess === 'function') {
         applySidebarAccess();
     }
@@ -839,31 +1007,39 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 // ============================================================
-//  10. PUBLIC API
+//  11. PUBLIC API
 // ============================================================
 
 window.INV = {
+    // Products
     openProductModal,
     saveProduct,
     deleteProduct,
     restoreProduct,
     filterProducts: renderProductsTable,
     permanentlyDeleteArchivedProduct,
+    // Stock
     openAdjustModal,
     adjustStock,
+    // Suppliers
     openSupplierModal,
     saveSupplier,
     deleteSupplier,
     permanentlyDeleteSupplier,
+    // Purchase Orders
     openPOModal,
     savePO,
     markPOReceived,
     cancelPO,
-    permanentlyDeletePO
+    permanentlyDeletePO,
+    // Categories
+    openCategoryModal,
+    saveCategory,
+    deleteCategory
 };
 
 // ============================================================
-//  11. EXCEL EXPORT
+//  12. EXCEL EXPORT (unchanged)
 // ============================================================
 
 async function exportInventoryToExcel() {

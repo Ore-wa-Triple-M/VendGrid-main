@@ -18,6 +18,8 @@
  *         to land after login). cashier added to PAGE_ACCESS['dashboard.html'].
  *
  * FIX 3: inventory_clerk role was missing from PAGE_ACCESS. Added.
+ *
+ * FIX 4: Added payment permissions for Phase 4 (M-Pesa integration).
  */
 
 'use strict';
@@ -75,14 +77,20 @@ const PERMISSIONS = {
     canDeleteUser:              ['admin'],
 
     // Settings
-    canEditSettings:            ['admin']
+    canEditSettings:            ['admin'],
+
+    // ========== PHASE 4: Payment Permissions ==========
+    // Process a sale (cash or mobile) – same as POS access
+    canProcessSale:             ['admin', 'manager', 'cashier'],
+    // Refund a payment (M-Pesa reverse transaction)
+    canRefundPayment:           ['admin'],
+    // View payment transactions (audit)
+    canViewPaymentTransactions: ['admin', 'manager']
 };
 
 /**
  * Check if the current user has permission for a specific action.
  * Safe to call even when currentProfile is not yet loaded (returns false).
- * @param {string} action
- * @returns {boolean}
  */
 function hasPermission(action) {
     if (!currentProfile || !currentProfile.role) return false;
@@ -93,8 +101,6 @@ function hasPermission(action) {
 
 /**
  * Check if the current user can access a given page filename.
- * @param {string} page  e.g. 'dashboard.html'
- * @returns {boolean}
  */
 function canAccessPage(page) {
     if (!currentProfile || !currentProfile.role) return false;
@@ -105,13 +111,6 @@ function canAccessPage(page) {
 
 /**
  * Hide sidebar links for pages the user cannot access.
- *
- * SAFE VERSION: if currentProfile is not yet set (still loading), schedules
- * a retry using requestAnimationFrame + exponential backoff up to ~2 seconds.
- * This prevents the race where sidebar.js's DOMContentLoaded fires before the
- * async requireAuth() call in the page script resolves.
- *
- * @param {number} [attempt=0] - internal retry counter
  */
 function applySidebarAccess(attempt = 0) {
     // If profile not ready yet, retry up to ~2 s
@@ -125,12 +124,10 @@ function applySidebarAccess(attempt = 0) {
     const links = document.querySelectorAll('.sidebar .sidebar-item[href]');
     links.forEach(link => {
         const href = link.getAttribute('href');
-        // Strip any query string for the lookup
         const page = href ? href.split('?')[0] : '';
         if (page && PAGE_ACCESS[page] && !canAccessPage(page)) {
             link.style.display = 'none';
         } else {
-            // Restore in case it was hidden by a previous early call
             link.style.removeProperty('display');
         }
     });
