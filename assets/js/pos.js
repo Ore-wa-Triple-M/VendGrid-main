@@ -1,5 +1,5 @@
 // =============================================================================
-// POS PAGE LOGIC – with M-Pesa STK Push integration
+// POS PAGE LOGIC – with M-Pesa STK Push integration & UI-based phone input
 // =============================================================================
 
 // ---------------------------------------------------------------------------
@@ -18,6 +18,108 @@ let businessInfo = {
 };
 let pendingPaymentSaleId = null;
 let paymentCheckInterval = null;
+
+// ---------------------------------------------------------------------------
+// UI HELPER – M-Pesa Phone Input Modal (replaces browser prompt)
+// ---------------------------------------------------------------------------
+/**
+ * Shows a modal dialog to capture M-Pesa phone number.
+ * @returns {Promise<string|null>} The validated phone number or null if cancelled.
+ */
+function showPhoneInputModal() {
+    return new Promise((resolve) => {
+        // Create modal container
+        const modalId = 'mpesaPhoneModal';
+        // Remove existing modal if any
+        const existingModal = document.getElementById(modalId);
+        if (existingModal) existingModal.remove();
+
+        const modalHtml = `
+            <div class="modal fade" id="${modalId}" tabindex="-1" aria-hidden="true">
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">
+                                <i class="fas fa-mobile-alt me-2"></i>M-Pesa Payment
+                            </h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="mb-3">
+                                <label for="mpesaPhoneInput" class="form-label">Phone Number</label>
+                                <input type="tel" class="form-control" id="mpesaPhoneInput" 
+                                       placeholder="e.g., 0712345678, 0112345678, 254712345678" autocomplete="off">
+                                <div class="form-text">Enter the M-Pesa registered phone number.</div>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                            <button type="button" class="btn btn-primary" id="confirmMpesaBtn">
+                                <i class="fas fa-check me-1"></i>Pay Now
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        const modalElement = document.getElementById(modalId);
+        const modal = new bootstrap.Modal(modalElement, {
+            backdrop: 'static',  // prevent accidental close by backdrop click? We'll handle cancel via button/close.
+            keyboard: true
+        });
+
+        let resolved = false;
+
+        const cleanup = () => {
+            if (modalElement) {
+                modal.hide();
+                setTimeout(() => modalElement.remove(), 300);
+            }
+        };
+
+        const resolveWith = (value) => {
+            if (resolved) return;
+            resolved = true;
+            cleanup();
+            resolve(value);
+        };
+
+        // Confirm button handler
+        const confirmBtn = document.getElementById('confirmMpesaBtn');
+        const phoneInput = document.getElementById('mpesaPhoneInput');
+
+        const validateAndConfirm = () => {
+            const rawPhone = phoneInput ? phoneInput.value.trim() : '';
+            // Validation: must start with 07, 01, or 254
+            if (!rawPhone.match(/^(07|01|254)/)) {
+                showNotification('Please enter a valid phone number starting with 07, 01, or 254', 'error');
+                return;
+            }
+            // Additional basic length check (optional but user-friendly)
+            if (rawPhone.length < 9) {
+                showNotification('Phone number too short', 'error');
+                return;
+            }
+            resolveWith(rawPhone);
+        };
+
+        if (confirmBtn) confirmBtn.onclick = validateAndConfirm;
+
+        // Cancel via close button, backdrop, or ESC
+        modalElement.addEventListener('hidden.bs.modal', () => {
+            if (!resolved) resolveWith(null);
+        });
+
+        // Show modal
+        modal.show();
+        // Auto-focus the input
+        setTimeout(() => {
+            if (phoneInput) phoneInput.focus();
+        }, 150);
+    });
+}
 
 // ---------------------------------------------------------------------------
 // SETTINGS
@@ -219,7 +321,7 @@ function updateChange() {
 }
 
 // ---------------------------------------------------------------------------
-// COMPLETE SALE (with M-PESA integration)
+// COMPLETE SALE (with M-PESA integration – no browser prompts)
 // ---------------------------------------------------------------------------
 async function completeSale() {
     if (!cart.length) {
@@ -236,9 +338,10 @@ async function completeSale() {
 
     // ------------------- M-PESA (Mobile) -------------------
     if (method === 'mobile') {
-        const phone = prompt('Enter M-Pesa phone number (e.g., 0712345678):');
-        if (!phone || !phone.match(/^07|^01|^254/)) {
-            showNotification('Valid phone number required', 'error');
+        // Show UI phone input modal instead of browser prompt
+        const phone = await showPhoneInputModal();
+        if (!phone) {
+            // User cancelled
             return;
         }
 
