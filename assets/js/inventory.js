@@ -990,7 +990,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (!canAccessPage('inventory.html')) {
         showToast('Access denied.', 'error');
-        setTimeout(() => window.location.href = 'dashboard.html', 1500);
+        setTimeout(() => globalThis.location.href = 'dashboard.html', 1500);
         return;
     }
 
@@ -1010,7 +1010,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 //  11. PUBLIC API
 // ============================================================
 
-window.INV = {
+globalThis.INV = {
     // Products
     openProductModal,
     saveProduct,
@@ -1125,4 +1125,4 @@ async function exportInventoryToExcel() {
     }
 }
 
-window.exportInventoryToExcel = exportInventoryToExcel;
+globalThis.exportInventoryToExcel = exportInventoryToExcel;

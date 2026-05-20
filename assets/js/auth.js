@@ -20,9 +20,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!form) return;
 
     // If redirected back from verify-email.html with ?verified=1
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(globalThis.location.search);
     if (params.get('verified') === '1') {
-        history.replaceState(null, '', window.location.pathname);
+        history.replaceState(null, '', globalThis.location.pathname);
         setTimeout(() => showNotification('Email verified! You can now sign in.', 'success'), 200);
     }
 
@@ -64,7 +64,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            window.location.href = 'dashboard.html';
+            globalThis.location.href = 'dashboard.html';
         } catch (err) {
             const msg = err.message || '';
 
@@ -81,7 +81,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // ── Password toggle ──────────────────────────────────────────────────
-    window.togglePassword = function () {
+    globalThis.togglePassword = function () {
         const input = document.getElementById('password');
         const icon  = document.getElementById('passwordToggleIcon');
         if (input.type === 'password') {

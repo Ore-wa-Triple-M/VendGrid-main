@@ -136,7 +136,7 @@ async function updateUser() {
         await loadUsers();
     }
 }
-window.updateUser = updateUser;
+globalThis.updateUser = updateUser;
 
 // ── Permanently delete a user ─────────────────────────────────────────────────
 async function permanentlyDeleteUser(userId, userName) {

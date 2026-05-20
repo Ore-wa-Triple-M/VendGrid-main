@@ -134,7 +134,7 @@ function applySidebarAccess(attempt = 0) {
 }
 
 // ── Global exports ─────────────────────────────────────────────────────────────
-window.ROLES           = ROLES;
-window.hasPermission   = hasPermission;
-window.canAccessPage   = canAccessPage;
-window.applySidebarAccess = applySidebarAccess;
+globalThis.ROLES           = ROLES;
+globalThis.hasPermission   = hasPermission;
+globalThis.canAccessPage   = canAccessPage;
+globalThis.applySidebarAccess = applySidebarAccess;

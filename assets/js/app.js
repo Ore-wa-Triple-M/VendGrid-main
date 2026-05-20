@@ -334,10 +334,10 @@ async function initiateMpesaPayment(saleId, phoneNumber, amount, transactionNumb
 }
 
 // Expose all global functions
-window.sendReceiptEmail = sendReceiptEmail;
-window.sendReceiptSMS = sendReceiptSMS;
-window.checkPaymentStatus = checkPaymentStatus;
-window.initiateMpesaPayment = initiateMpesaPayment;
-window.updateGlobalBranding = updateGlobalBranding;
-window.initIdleTimer        = initIdleTimer;
-window.permanentDeleteRecord = permanentDeleteRecord;
+globalThis.sendReceiptEmail = sendReceiptEmail;
+globalThis.sendReceiptSMS = sendReceiptSMS;
+globalThis.checkPaymentStatus = checkPaymentStatus;
+globalThis.initiateMpesaPayment = initiateMpesaPayment;
+globalThis.updateGlobalBranding = updateGlobalBranding;
+globalThis.initIdleTimer        = initIdleTimer;
+globalThis.permanentDeleteRecord = permanentDeleteRecord;

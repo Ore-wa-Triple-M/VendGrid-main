@@ -21,7 +21,7 @@ async function getCurrentProfile() {
 async function requireAuth() {
     const { data: { session } } = await supabaseClient.auth.getSession();
     if (!session) {
-        window.location.href = 'login.html';
+        globalThis.location.href = 'login.html';
         return false;
     }
     currentUser = session.user;
@@ -36,7 +36,7 @@ async function requireAuth() {
         await updateGlobalBranding();
     }
     // Expose role globally for permissions
-    window.getUserRole = () => currentProfile?.role;
+    globalThis.getUserRole = () => currentProfile?.role;
     
     return true;
 }
@@ -45,7 +45,7 @@ async function requireAdmin() {
     if (!await requireAuth()) return false;
     if (currentProfile?.role !== 'admin') {
         showNotification('Admin access required', 'error');
-        setTimeout(() => window.location.href = 'dashboard.html', 2000);
+        setTimeout(() => globalThis.location.href = 'dashboard.html', 2000);
         return false;
     }
     return true;
@@ -59,5 +59,5 @@ async function signIn(email, password) {
 
 async function signOut() {
     await supabaseClient.auth.signOut();
-    window.location.href = 'login.html';
+    globalThis.location.href = 'login.html';
 }

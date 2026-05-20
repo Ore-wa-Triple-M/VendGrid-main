@@ -152,7 +152,7 @@ async function loadPOSData() {
         .eq('is_active', true);
     categories = catData || [];
     renderCategories();
-    renderProducts();
+    renderProducts(); // will show nothing initially because no category selected and search empty
 }
 
 // ---------------------------------------------------------------------------
@@ -161,10 +161,14 @@ async function loadPOSData() {
 function renderCategories() {
     const container = document.getElementById('categoryFilter');
     if (!container) return;
-    container.innerHTML = '<button class="btn btn-sm btn-outline-primary active" data-cat="all">All</button>';
+    // Clear container and add category buttons, but no active button by default
+    container.innerHTML = '<button class="btn btn-sm btn-outline-primary" data-cat="all">All</button>';
     categories.forEach(cat => {
         container.innerHTML += `<button class="btn btn-sm btn-outline-primary" data-cat="${cat.id}">${escapeHtml(cat.name)}</button>`;
     });
+    // Remove active class from all initially
+    document.querySelectorAll('#categoryFilter button').forEach(btn => btn.classList.remove('active'));
+    
     document.querySelectorAll('#categoryFilter button').forEach(btn => {
         btn.onclick = () => {
             document.querySelectorAll('#categoryFilter button').forEach(b => b.classList.remove('active'));
@@ -180,20 +184,46 @@ function renderCategories() {
 function renderProducts() {
     const search    = (document.getElementById('searchInput')?.value || '').toLowerCase();
     const activeCat = document.querySelector('#categoryFilter button.active')?.dataset.cat;
-    const filtered = products.filter(p => {
-        const matchCat    = activeCat === 'all' || p.category_id == activeCat;
-        const matchSearch = p.name.toLowerCase().includes(search) ||
-                            (p.sku || '').toLowerCase().includes(search) ||
-                            (p.barcode || '').toLowerCase().includes(search);
-        return matchCat && matchSearch;
-    });
+    
+    // If no category selected and search is empty, show nothing
+    if (!activeCat && !search) {
+        const grid = document.getElementById('productGrid');
+        if (grid) {
+            grid.innerHTML = `<div class="col-12 text-center text-muted py-5">
+                                <i class="fas fa-search fa-3x mb-3"></i>
+                                <p>Select a category or type to search for products</p>
+                              </div>`;
+        }
+        return;
+    }
+    
+    let filtered = products;
+    if (activeCat && activeCat !== 'all') {
+        filtered = filtered.filter(p => p.category_id == activeCat);
+    }
+    if (search) {
+        filtered = filtered.filter(p => p.name.toLowerCase().includes(search) ||
+                                        (p.sku || '').toLowerCase().includes(search) ||
+                                        (p.barcode || '').toLowerCase().includes(search));
+    }
+    
     const grid = document.getElementById('productGrid');
     if (!grid) return;
+    
+    if (filtered.length === 0) {
+        grid.innerHTML = `<div class="col-12 text-center text-muted py-5">
+                            <i class="fas fa-box-open fa-3x mb-3"></i>
+                            <p>No products found</p>
+                          </div>`;
+        return;
+    }
+    
     grid.innerHTML = filtered.map(p => `
         <div class="product-card ${p.stock_quantity <= 0 ? 'out-of-stock' : ''}"
              onclick="addToCart(${p.id})">
             <i class="fas fa-box fa-2x text-muted"></i>
             <div class="product-name">${escapeHtml(p.name)}</div>
+            ${p.description ? `<div class="product-desc small text-muted mt-1">${escapeHtml(p.description)}</div>` : ''}
             <div class="product-price">${formatCurrency(p.price)}</div>
             <small class="text-muted">Stock: ${p.stock_quantity}</small>
         </div>
@@ -215,10 +245,11 @@ function addToCart(productId) {
         existing.quantity++;
     } else {
         cart.push({
-            id:       product.id,
-            name:     product.name,
-            price:    parseFloat(product.price),
-            quantity: 1,
+            id:          product.id,
+            name:        product.name,
+            description: product.description || '',
+            price:       parseFloat(product.price),
+            quantity:    1,
         });
     }
     renderCart();
@@ -267,7 +298,8 @@ function renderCart() {
     container.innerHTML = cart.map(item => `
         <div class="cart-item">
             <div class="cart-item-name">${escapeHtml(item.name)}</div>
-            <div class="d-flex align-items-center gap-2">
+            ${item.description ? `<div class="cart-item-desc small text-muted">${escapeHtml(item.description)}</div>` : ''}
+            <div class="d-flex align-items-center gap-2 mt-1">
                 <button class="quantity-btn" onclick="updateQuantity(${item.id}, -1)"><i class="fas fa-minus"></i></button>
                 <span>${item.quantity}</span>
                 <button class="quantity-btn" onclick="updateQuantity(${item.id}, 1)"><i class="fas fa-plus"></i></button>
@@ -463,7 +495,10 @@ function generateReceipt(transactionNumber = null, snapshot = null, amountTender
 
     const itemsHTML = receiptItems.map(item => `
         <tr>
-            <td class="ps-0">${escapeHtml(item.name)}</td>
+            <td class="ps-0">
+                ${escapeHtml(item.name)}
+                ${item.description ? `<br><small class="text-muted">${escapeHtml(item.description)}</small>` : ''}
+            </td>
             <td class="text-center">${item.quantity}</td>
             <td class="text-end">${formatCurrency(item.price)}</td>
             <td class="text-end pe-0">${formatCurrency(item.price * item.quantity)}</td>
@@ -554,8 +589,8 @@ function generateReceipt(transactionNumber = null, snapshot = null, amountTender
         </div>
     `;
 
-    window._lastReceiptHTML = receiptBody;
-    window._lastTransactionNumber = transactionNumber;
+    globalThis._lastReceiptHTML = receiptBody;
+    globalThis._lastTransactionNumber = transactionNumber;
 
     const receiptContent = document.getElementById('receiptContent');
     if (receiptContent) receiptContent.innerHTML = receiptBody;
@@ -572,8 +607,8 @@ async function sendReceiptEmailFromModal(transactionNumber) {
         showNotification('Please enter an email address', 'warning');
         return;
     }
-    const receiptHtml = window._lastReceiptHTML || document.getElementById('receiptContent')?.innerHTML || '';
-    await window.sendReceiptEmail(email, receiptHtml, transactionNumber);
+    const receiptHtml = globalThis._lastReceiptHTML || document.getElementById('receiptContent')?.innerHTML || '';
+    await globalThis.sendReceiptEmail(email, receiptHtml, transactionNumber);
 }
 
 async function sendReceiptSMSFromModal(transactionNumber) {
@@ -584,12 +619,12 @@ async function sendReceiptSMSFromModal(transactionNumber) {
     }
     const total = document.getElementById('total')?.innerText || '';
     const shortSummary = `VendGrid receipt #${transactionNumber} | Total ${total}`;
-    await window.sendReceiptSMS(phone, shortSummary);
+    await globalThis.sendReceiptSMS(phone, shortSummary);
 }
 
 function printReceipt() {
     const content = document.getElementById('receiptContent').innerHTML;
-    const win = window.open('', '_blank', 'width=420,height=600');
+    const win = globalThis.open('', '_blank', 'width=420,height=600');
     win.document.write(`
         <!DOCTYPE html>
         <html>
@@ -623,7 +658,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const allowedRoles = ['admin', 'manager', 'cashier'];
     if (!allowedRoles.includes(currentProfile?.role)) {
         showNotification('Access denied. Only cashiers, managers and admins can use POS.', 'error');
-        setTimeout(() => window.location.href = 'dashboard.html', 2000);
+        setTimeout(() => globalThis.location.href = 'dashboard.html', 2000);
         return;
     }
 
@@ -638,11 +673,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 // Expose functions globally
-window.sendReceiptEmailFromModal = sendReceiptEmailFromModal;
-window.sendReceiptSMSFromModal   = sendReceiptSMSFromModal;
-window.addToCart = addToCart;
-window.updateQuantity = updateQuantity;
-window.clearCart = clearCart;
-window.completeSale = completeSale;
-window.generateReceipt = generateReceipt;
-window.printReceipt = printReceipt;
+globalThis.sendReceiptEmailFromModal = sendReceiptEmailFromModal;
+globalThis.sendReceiptSMSFromModal   = sendReceiptSMSFromModal;
+globalThis.addToCart = addToCart;
+globalThis.updateQuantity = updateQuantity;
+globalThis.clearCart = clearCart;
+globalThis.completeSale = completeSale;
+globalThis.generateReceipt = generateReceipt;
+globalThis.printReceipt = printReceipt;

@@ -47,8 +47,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             // Build stable redirect URL from origin + current directory path
-            const origin    = window.location.origin;
-            const basePath  = window.location.pathname.replace(/\/[^/]*$/, '/');
+            const origin    = globalThis.location.origin;
+            const basePath  = globalThis.location.pathname.replace(/\/[^/]*$/, '/');
             const verifyUrl = origin + basePath + 'verify-email.html';
 
             const { data: authData, error: signUpError } = await supabaseClient.auth.signUp({
@@ -100,10 +100,10 @@ document.addEventListener('DOMContentLoaded', () => {
             if (user.email_confirmed_at) {
                 try { await supabaseClient.auth.signOut(); } catch(_) {}
                 showNotification('Account created! Please sign in.', 'success');
-                setTimeout(() => { window.location.href = 'login.html'; }, 1200);
+                setTimeout(() => { globalThis.location.href = 'login.html'; }, 1200);
             } else {
                 // Confirmation is enabled — show the "check your inbox" page.
-                window.location.href = 'verify-email.html';
+                globalThis.location.href = 'verify-email.html';
             }
 
         } catch (err) {
@@ -133,4 +133,4 @@ function togglePassword() {
         icon.classList.replace('fa-eye-slash', 'fa-eye');
     }
 }
-window.togglePassword = togglePassword;
+globalThis.togglePassword = togglePassword;

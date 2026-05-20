@@ -362,7 +362,7 @@ async function exportSalesToExcel() {
         showNotification('Export utility not loaded. Please refresh the page.', 'error');
     }
 }
-window.exportSalesToExcel = exportSalesToExcel;
+globalThis.exportSalesToExcel = exportSalesToExcel;
 
 // ── Product Performance (uses is_active, not is_deleted) ──────────────────────
 async function loadProductPerformance(days) {
@@ -485,7 +485,7 @@ function exportSalesToPDF() {
 
     const salesTableHtml = document.getElementById('salesTable')?.innerHTML || '';
 
-    const win = window.open('', '_blank', 'width=1000,height=800');
+    const win = globalThis.open('', '_blank', 'width=1000,height=800');
     win.document.write(`<!DOCTYPE html><html>
     <head>
         <title>Sales Report - VendGrid</title>
@@ -521,7 +521,7 @@ function exportSalesToPDF() {
     </body></html>`);
     win.document.close();
 }
-window.exportSalesToPDF = exportSalesToPDF;
+globalThis.exportSalesToPDF = exportSalesToPDF;
 
 // ── Event wires ───────────────────────────────────────────────────────────────
 document.getElementById('periodSelect')?.addEventListener('change', loadReports);
@@ -532,7 +532,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!await requireAuth()) return;
     if (!canAccessPage('reports.html')) {
         showNotification('Access denied.', 'error');
-        setTimeout(() => window.location.href = 'dashboard.html', 1500);
+        setTimeout(() => globalThis.location.href = 'dashboard.html', 1500);
         return;
     }
 

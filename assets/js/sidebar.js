@@ -51,14 +51,14 @@
         sidebar.insertBefore(header, sidebar.firstChild);
 
         // Refresh logo if branding is already available
-        if (typeof window.updateGlobalBranding === 'function') {
-            window.updateGlobalBranding();
+        if (typeof globalThis.updateGlobalBranding === 'function') {
+            globalThis.updateGlobalBranding();
         }
     }
 
     // ── Apply saved collapsed state (desktop only) ────────────────────────────
     function applyCollapsedState() {
-        if (window.innerWidth > 768) {
+        if (globalThis.innerWidth > 768) {
             const isCollapsed = localStorage.getItem(STORAGE_KEY) === 'true';
             document.body.classList.toggle('sidebar-collapsed', isCollapsed);
         } else {
@@ -70,7 +70,7 @@
     function toggleDesktop() {
         const collapsed = document.body.classList.toggle('sidebar-collapsed');
         localStorage.setItem(STORAGE_KEY, collapsed);
-        window.dispatchEvent(new CustomEvent('sidebarToggle', { detail: { collapsed } }));
+        globalThis.dispatchEvent(new CustomEvent('sidebarToggle', { detail: { collapsed } }));
     }
 
     // ── Mobile drawer ─────────────────────────────────────────────────────────
@@ -100,7 +100,7 @@
             if (link.dataset.mobileCloseRegistered) return;
             link.dataset.mobileCloseRegistered = '1';
             link.addEventListener('click', () => {
-                if (window.innerWidth <= 768) closeMobileDrawer();
+                if (globalThis.innerWidth <= 768) closeMobileDrawer();
             });
         });
     }
@@ -108,7 +108,7 @@
     // ── Toggle handler (desktop vs mobile) ───────────────────────────────────
     function onToggleClick(e) {
         e.preventDefault();
-        if (window.innerWidth <= 768) {
+        if (globalThis.innerWidth <= 768) {
             openMobileDrawer();
         } else {
             toggleDesktop();
@@ -116,10 +116,10 @@
     }
 
     // ── Resize handling (throttled) ───────────────────────────────────────────
-    window.addEventListener('resize', () => {
+    globalThis.addEventListener('resize', () => {
         clearTimeout(resizeTimer);
         resizeTimer = setTimeout(() => {
-            if (window.innerWidth > 768) {
+            if (globalThis.innerWidth > 768) {
                 closeMobileDrawer();
                 document.body.classList.toggle(
                     'sidebar-collapsed',

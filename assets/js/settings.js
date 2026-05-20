@@ -30,8 +30,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Phone input (intl-tel-input)
     const phoneEl = document.getElementById('businessPhone');
-    if (phoneEl && window.intlTelInput) {
-        iti = window.intlTelInput(phoneEl, {
+    if (phoneEl && globalThis.intlTelInput) {
+        iti = globalThis.intlTelInput(phoneEl, {
             utilsScript: 'https://cdn.jsdelivr.net/npm/intl-tel-input@23.0.10/build/js/utils.js',
             initialCountry: 'KE',
             geoIpLookup: cb => {
@@ -196,5 +196,5 @@ async function saveSettings() {
     }
 }
 
-window.saveSettings  = saveSettings;
-window.loadSettings  = loadSettings;
+globalThis.saveSettings  = saveSettings;
+globalThis.loadSettings  = loadSettings;
