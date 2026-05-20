@@ -94,26 +94,49 @@ function getUserFriendlyErrorMessage(error, fallback = 'An unexpected error occu
     if (!error) return fallback;
     const message = error.message || String(error);
 
+    // Network errors
     if (message.includes('Failed to fetch') || message.includes('NetworkError') || message.includes('network'))
         return 'Network error. Please check your internet connection.';
     if (message.includes('timeout') || message.includes('Timeout'))
         return 'Request timed out. Please try again.';
-    if (message.includes('database') || message.includes('relation') || message.includes('column') || message.includes('permission'))
-        return 'Database error. Please contact support.';
+
+    // Auth errors
     if (message.includes('Invalid login credentials'))
         return 'Invalid email or password.';
     if (message.includes('Email not confirmed'))
         return 'Please verify your email address before logging in.';
     if (message.includes('User already registered'))
         return 'An account with this email already exists.';
-    if (message.includes('No matching record found'))
-        return 'Record not found or you do not have permission to delete it.';
 
+    // Custom application errors — pass through as-is so descriptive messages
+    // like "Sale not found or you do not have permission to void it" reach the user.
+    if (message.includes('No matching record found') || message.includes('not found or you do not have permission'))
+        return message;
+
+    // True Supabase / PostgREST DB errors — surface the code and hint if available
+    // so developers can diagnose schema / RLS issues without digging in the console.
+    // NOTE: we check error.code (Supabase sets this) rather than scanning message text
+    // so we no longer accidentally swallow custom error messages that contain the word "permission".
+    const code = error.code || '';
+    if (code === 'PGRST301' || code === '42501')
+        return `Permission denied. Check Row Level Security policies. (code: ${code})`;
+    if (code === '42P01')
+        return `Table not found in database. Please contact support. (code: ${code})`;
+    if (code === '42703')
+        return `Schema mismatch – unknown column. Please contact support. (code: ${code})`;
+    if (code === '23503')
+        return `Cannot delete: this record is referenced by other data. (code: ${code})`;
+    if (code === '23505')
+        return `A record with this value already exists. (code: ${code})`;
+    if (code && code.startsWith('PG') || code.startsWith('22') || code.startsWith('23') || code.startsWith('42'))
+        return `Database error (${code}): ${error.hint || error.details || message}`.slice(0, 120);
+
+    // Fallback: pass through short messages, use fallback for long/technical ones
     const clean = message
         .replace(/https?:\/\/[^\s]+/g, '')
         .replace(/TypeError|ReferenceError|SyntaxError|Error:/g, '')
         .trim();
-    if (clean.length > 0 && clean.length < 100) return clean;
+    if (clean.length > 0 && clean.length < 150) return clean;
     return fallback;
 }
 
@@ -130,13 +153,18 @@ async function permanentDeleteRecord(tableName, recordId, recordName = 'this rec
     if (!confirmed) return false;
 
     try {
-        const { count, error } = await supabaseClient
+        // Use .select('id') so Supabase returns the rows that were actually deleted.
+        // {count:'exact'} returns null when RLS silently blocks the operation without
+        // throwing an error, making count === 0 check unreliable.
+        const { data: deletedRows, error } = await supabaseClient
             .from(tableName)
-            .delete({ count: 'exact' })
-            .eq('id', recordId);
+            .delete()
+            .eq('id', recordId)
+            .select('id');
 
         if (error) throw error;
-        if (count === 0) throw new Error('No matching record found or permission denied');
+        if (!deletedRows || deletedRows.length === 0)
+            throw new Error('No matching record found or permission denied');
 
         showNotification(`"${recordName}" has been permanently deleted.`, 'success');
         return true;

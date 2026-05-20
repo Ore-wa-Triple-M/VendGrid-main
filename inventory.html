@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <link rel="stylesheet" href="assets/css/shared.css">
+     <link rel="stylesheet" href="assets/css/light-theme.css">
 </head>
 <body>
 
@@ -136,9 +137,9 @@
                                 <tr><td colspan="9" class="text-center py-4">
                                     <div class="spinner-border spinner-border-sm text-primary"></div>
                                     <span class="ms-2 text-muted">Loading products…</span>
-                                </td></tr>
+                                 </tr>
                             </tbody>
-                        </table>
+                         </table>
                     </div>
                 </div>
             </div>
@@ -160,9 +161,9 @@
                             <tbody id="archivedProductsTable">
                                 <tr><td colspan="8" class="text-center py-4">
                                     <div class="spinner-border spinner-border-sm text-primary"></div>
-                                </td></tr>
+                                 </tr>
                             </tbody>
-                        </table>
+                         </table>
                     </div>
                 </div>
             </div>
@@ -189,9 +190,9 @@
                             <tbody id="stockTable">
                                 <tr><td colspan="6" class="text-center py-4">
                                     <div class="spinner-border spinner-border-sm text-primary"></div>
-                                </td></tr>
+                                 </tr>
                             </tbody>
-                        </table>
+                         </table>
                     </div>
                 </div>
             </div>
@@ -218,9 +219,9 @@
                             <tbody id="suppliersTable">
                                 <tr><td colspan="6" class="text-center py-4">
                                     <div class="spinner-border spinner-border-sm text-primary"></div>
-                                </td></tr>
+                                 </tr>
                             </tbody>
-                        </table>
+                         </table>
                     </div>
                 </div>
             </div>
@@ -247,18 +248,21 @@
                             <tbody id="poTable">
                                 <tr><td colspan="7" class="text-center py-4">
                                     <div class="spinner-border spinner-border-sm text-primary"></div>
-                                </td></tr>
+                                 </tr>
                             </tbody>
-                        </table>
+                         </table>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Movements Tab -->
+        <!-- Movements Tab (with Clear button) -->
         <div class="tab-pane fade" id="movements-tab">
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <h5 class="mb-0">Stock Movements <small class="text-muted fw-normal">(last 100)</small></h5>
+                <button class="btn btn-danger" onclick="INV.clearAllMovements()">
+                    <i class="fas fa-trash-alt me-1"></i> Clear All Movements
+                </button>
             </div>
             <div class="card shadow-sm">
                 <div class="card-body p-0">
@@ -273,15 +277,15 @@
                             <tbody id="movementsTable">
                                 <tr><td colspan="6" class="text-center py-4">
                                     <div class="spinner-border spinner-border-sm text-primary"></div>
-                                </td></tr>
+                                 </tr>
                             </tbody>
-                        </table>
+                         </table>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- ========== NEW: Categories Tab ========== -->
+        <!-- Categories Tab -->
         <div class="tab-pane fade" id="categories-tab">
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <h5 class="mb-0">Product Categories</h5>
@@ -304,9 +308,9 @@
                             <tbody id="categoriesTable">
                                 <tr><td colspan="4" class="text-center py-4">
                                     <div class="spinner-border spinner-border-sm text-primary"></div>
-                                </td></tr>
+                                 </tr>
                             </tbody>
-                        </table>
+                         </table>
                     </div>
                 </div>
             </div>
@@ -508,7 +512,7 @@
     </div>
 </div>
 
-<!-- NEW: Category Modal -->
+<!-- Category Modal -->
 <div class="modal fade" id="categoryModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
@@ -565,6 +569,7 @@
 <script src="assets/js/inventory.js"></script>
 <script src="assets/js/xlsx-export.js"></script>
 <script src="assets/js/sidebar.js"></script>
+<script src="assets/js/theme-manager.js"></script>
 
 </body>
 </html>

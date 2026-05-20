@@ -1,25 +1,9 @@
 /**
  * permissions.js – VendGrid Centralised Role-Based Access Control
  *
- * FIX 1: applySidebarAccess() was called synchronously on DOMContentLoaded by
- *         both sidebar.js AND page scripts, BEFORE requireAuth()/requireAdmin()
- *         had resolved and set currentProfile. Result: currentProfile was null,
- *         canAccessPage() returned false for EVERY link including admin ones,
- *         and all sidebar items were hidden.
- *
- * FIX:    applySidebarAccess() is now async-safe:
- *         - If currentProfile is already loaded, it runs immediately.
- *         - If not, it polls with a short backoff (max ~2s) and retries.
- *         - Each page's boot function calls applySidebarAccess() AFTER
- *           requireAuth/requireAdmin has resolved (in sidebar.js the call
- *           is deferred via window.sidebarAccessReady flag).
- *
- * FIX 2: dashboard.html is now accessible to cashier role (they need somewhere
- *         to land after login). cashier added to PAGE_ACCESS['dashboard.html'].
- *
- * FIX 3: inventory_clerk role was missing from PAGE_ACCESS. Added.
- *
- * FIX 4: Added payment permissions for Phase 4 (M-Pesa integration).
+ * FIX 1: applySidebarAccess() is async-safe.
+ * FIX 2: dashboard accessible to cashier & inventory_clerk.
+ * FIX 3: Added canClearStockMovements and canPermanentlyDeleteCategory.
  */
 
 'use strict';
@@ -33,7 +17,6 @@ const ROLES = {
 };
 
 // ── Page access rules ──────────────────────────────────────────────────────────
-// dashboard is open to all authenticated roles so every user has a landing page.
 const PAGE_ACCESS = {
     'dashboard.html':  ['admin', 'manager', 'cashier', 'inventory_clerk'],
     'pos.html':        ['admin', 'manager', 'cashier'],
@@ -79,12 +62,15 @@ const PERMISSIONS = {
     // Settings
     canEditSettings:            ['admin'],
 
-    // ========== PHASE 4: Payment Permissions ==========
-    // Process a sale (cash or mobile) – same as POS access
+    // Stock Movements
+    canClearStockMovements:     ['admin'],   // NEW
+
+    // Categories
+    canPermanentlyDeleteCategory: ['admin'], // NEW
+
+    // Payment
     canProcessSale:             ['admin', 'manager', 'cashier'],
-    // Refund a payment (M-Pesa reverse transaction)
     canRefundPayment:           ['admin'],
-    // View payment transactions (audit)
     canViewPaymentTransactions: ['admin', 'manager']
 };
 
@@ -113,14 +99,12 @@ function canAccessPage(page) {
  * Hide sidebar links for pages the user cannot access.
  */
 function applySidebarAccess(attempt = 0) {
-    // If profile not ready yet, retry up to ~2 s
     if (!currentProfile || !currentProfile.role) {
         if (attempt < 20) {
             setTimeout(() => applySidebarAccess(attempt + 1), 100);
         }
         return;
     }
-
     const links = document.querySelectorAll('.sidebar .sidebar-item[href]');
     links.forEach(link => {
         const href = link.getAttribute('href');

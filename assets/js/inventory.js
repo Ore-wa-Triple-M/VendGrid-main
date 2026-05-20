@@ -3,6 +3,7 @@
  * 
  * Full RBAC integration: page access check + permission-based UI.
  * Categories Management System – permission checks removed to work with existing RBAC.
+ * FIXED: Added 'VOID_RESTORE' movement type with proper badge colour.
  */
 
 'use strict';
@@ -29,15 +30,13 @@ function showToast(message, type = 'success') {
     }, 3500);
 }
 
-// escapeHtml() provided globally by app.js
-
 function fmt(amount) {
     return parseFloat(amount || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function showTableSpinner(tbodyId, cols) {
     const el = document.getElementById(tbodyId);
-    if (el) el.innerHTML = `<td><td colspan="${cols}" class="text-center py-4"><div class="spinner-border spinner-border-sm text-primary"></div></td></tr>`;
+    if (el) el.innerHTML = `<tr><td colspan="${cols}" class="text-center py-4"><div class="spinner-border spinner-border-sm text-primary"></div></td></tr>`;
 }
 
 // ============================================================
@@ -52,21 +51,23 @@ let allPurchaseOrders  = [];
 let allStockMovements  = [];
 
 // ============================================================
-//  3. CATEGORIES MANAGEMENT (Permissions removed)
+//  3. CATEGORIES MANAGEMENT
 // ============================================================
+
 
 async function loadCategories() {
     const { data, error } = await supabaseClient
         .from('categories')
         .select('*')
-        .eq('is_active', true)
         .order('name');
 
     if (error) {
-        showToast(getUserFriendlyErrorMessage(error, 'Could not load categories.'), 'error');
+        const detail = [error.code, error.hint, error.details, error.message].filter(Boolean).join(' | ');
+        console.error('loadCategories error:', error);
+        showToast(`Could not load categories: ${detail}`, 'error');
         return [];
     }
-    allCategories = data || [];
+    allCategories = (data || []).filter(c => c.is_active !== false);
     return allCategories;
 }
 
@@ -75,30 +76,30 @@ function renderCategoriesTable() {
     if (!tbody) return;
 
     if (!allCategories.length) {
-        tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-4">No categories found. Click "Add Category" to create one.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-4">No categories found. Click "Add Category" to create one. </tr>';
         return;
     }
 
-    // Show edit/delete buttons for all users – permission checks removed
     tbody.innerHTML = allCategories.map(cat => `
         <tr>
             <td><strong>${escapeHtml(cat.name)}</strong></td>
             <td>${escapeHtml(cat.description || '—')}</td>
             <td><span class="badge bg-success">Active</span></td>
             <td class="text-nowrap">
-                <button class="icon-btn icon-btn-edit" title="Edit Category" onclick="INV.openCategoryModal(${cat.id})">
+                <button class="icon-btn icon-btn-edit" title="Edit Category"
+                        data-action="edit-cat" data-id="${cat.id}">
                     <i class="fas fa-edit"></i>
                 </button>
-                <button class="icon-btn icon-btn-delete" title="Delete Category" onclick="INV.deleteCategory(${cat.id}, '${escapeHtml(cat.name)}')">
-                    <i class="fas fa-trash"></i>
+                <button class="icon-btn icon-btn-delete" title="Delete Category (Permanent)"
+                        data-action="delete-cat" data-id="${cat.id}" data-label="${escapeHtml(cat.name)}">
+                    <i class="fas fa-trash-alt"></i>
                 </button>
-            </td>
-        </tr>
+             </td>
+         </tr>
     `).join('');
 }
 
 function openCategoryModal(id = null) {
-    // No permission check – allow any authenticated user to manage categories
     document.getElementById('categoryId').value = '';
     document.getElementById('catName').value = '';
     document.getElementById('catDesc').value = '';
@@ -129,43 +130,32 @@ async function saveCategory() {
         return;
     }
 
-    // Check for duplicate name (case‑insensitive)
-    const duplicate = allCategories.some(cat => cat.name.toLowerCase() === name.toLowerCase() && (id ? cat.id != id : true));
+    const duplicate = allCategories.some(cat =>
+        cat.name.toLowerCase() === name.toLowerCase() && (id ? String(cat.id) !== String(id) : true)
+    );
     if (duplicate) {
         showToast('A category with this name already exists.', 'warning');
         return;
     }
 
-    const now = new Date().toISOString();
     let result;
     if (id) {
-        // Update – do NOT include 'id' in the update object
-        const updateData = {
-            name: name,
-            description: description,
-            updated_at: now
-        };
         result = await supabaseClient
             .from('categories')
-            .update(updateData)
+            .update({ name, description })
             .eq('id', id);
     } else {
-        // Insert – do NOT include 'id' at all (auto‑increment)
-        const insertData = {
-            name: name,
-            description: description,
-            is_active: true,
-            created_at: now,
-            updated_at: now
-        };
         result = await supabaseClient
             .from('categories')
-            .insert(insertData);
+            .insert({ name, description, is_active: true });
     }
 
     if (result.error) {
-        console.error('Save category error:', result.error);
-        showToast(getUserFriendlyErrorMessage(result.error, 'Failed to save category.'), 'error');
+        const err = result.error;
+        const detail = [err.code, err.hint, err.details, err.message]
+            .filter(Boolean).join(' | ');
+        console.error('saveCategory error:', err);
+        showToast(`Failed to save category: ${detail}`, 'error');
         return;
     }
 
@@ -175,40 +165,49 @@ async function saveCategory() {
     renderCategoriesTable();
     refreshCategoryDependentUI();
 }
+
 async function deleteCategory(id, name) {
-    // No permission check – rely on database RLS if needed
-    // Prevent deletion if any active product uses this category
-    const { data: productsUsing, error: checkError } = await supabaseClient
+    if (!hasPermission('canPermanentlyDeleteCategory')) {
+        showToast('You do not have permission to permanently delete categories.', 'error');
+        return;
+    }
+
+    // Check if any active product uses this category
+    const { count, error: checkError } = await supabaseClient
         .from('products')
-        .select('id', { count: 'exact', head: true })
+        .select('*', { count: 'exact', head: true })
         .eq('category_id', id)
         .eq('is_active', true)
         .is('deleted_at', null);
 
     if (checkError) {
-        showToast('Error checking category usage.', 'error');
+        const detail = [checkError.code, checkError.message].filter(Boolean).join(' | ');
+        showToast(`Error checking category usage: ${detail}`, 'error');
         return;
     }
 
-    if (productsUsing && productsUsing.length > 0) {
-        showToast(`Cannot delete "${name}": it is used by ${productsUsing.length} product(s). Reassign or delete those products first.`, 'warning');
+    if (count > 0) {
+        showToast(`Cannot delete "${name}": it is used by ${count} product(s). Reassign or delete those products first.`, 'warning');
         return;
     }
 
-    const confirmed = await showConfirmationToast(`Deactivate category "${name}"?`, 8000, 'Deactivate');
+    const confirmed = await showConfirmationToast(`⚠️ PERMANENT DELETE: Remove category "${name}" entirely? This cannot be undone.`, 10000, 'Permanently Delete');
     if (!confirmed) return;
 
+    // Hard delete from database
     const { error } = await supabaseClient
         .from('categories')
-        .update({ is_active: false, updated_at: new Date().toISOString() })
+        .delete()
         .eq('id', id);
 
     if (error) {
-        showToast(getUserFriendlyErrorMessage(error, 'Failed to delete category.'), 'error');
+        const detail = [error.code, error.hint, error.details, error.message].filter(Boolean).join(' | ');
+        console.error('deleteCategory error:', error);
+        showToast(`Failed to delete category: ${detail}`, 'error');
         return;
     }
 
-    showToast('Category deactivated', 'success');
+    showToast(`Category "${name}" has been permanently deleted.`, 'success');
     await loadCategories();
     renderCategoriesTable();
     refreshCategoryDependentUI();
@@ -228,9 +227,7 @@ function refreshCategoryDependentUI() {
 
 async function loadProducts() {
     showTableSpinner('productsTable', 9);
-
     await loadCategories();
-
     const { data: products, error: prodErr } = await supabaseClient
         .from('products')
         .select('*, categories(name)')
@@ -238,12 +235,10 @@ async function loadProducts() {
         .is('deleted_at', null);
 
     if (prodErr) {
-        showToast(getUserFriendlyErrorMessage(prodErr, 'Could not load products. Please check your connection.'), 'error');
+        showToast(getUserFriendlyErrorMessage(prodErr, 'Could not load products.'), 'error');
         return;
     }
-
     allProducts = products || [];
-
     _populateCategoryDropdowns();
     renderProductsTable();
     loadArchivedProducts();
@@ -252,19 +247,16 @@ async function loadProducts() {
 async function loadArchivedProducts() {
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
     const { data: archived, error } = await supabaseClient
         .from('products')
         .select('*, categories(name)')
         .eq('is_active', false)
         .gte('deleted_at', sevenDaysAgo.toISOString())
         .order('deleted_at', { ascending: false });
-
     if (error) {
         showToast(getUserFriendlyErrorMessage(error, 'Could not load archived products.'), 'error');
         return;
     }
-
     allArchivedProducts = archived || [];
     renderArchivedProductsTable();
 }
@@ -284,37 +276,29 @@ async function permanentlyDeleteArchivedProduct(productId, productName) {
 function _populateCategoryDropdowns() {
     const options = '<option value="">— None —</option>' +
         allCategories.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
-
     const filterEl = document.getElementById('categoryFilter');
     if (filterEl) {
         filterEl.innerHTML = '<option value="">All Categories</option>' +
             allCategories.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
     }
-
     const modalEl = document.getElementById('productCategory');
     if (modalEl) modalEl.innerHTML = options;
 }
 
 function renderProductsTable() {
-    const search     = (document.getElementById('productSearch')?.value || '').toLowerCase();
+    const search = (document.getElementById('productSearch')?.value || '').toLowerCase();
     const categoryId = document.getElementById('categoryFilter')?.value || '';
-
     const filtered = allProducts.filter(p => {
-        const matchSearch = p.name.toLowerCase().includes(search) ||
-                            (p.sku || '').toLowerCase().includes(search) ||
-                            (p.barcode || '').toLowerCase().includes(search);
+        const matchSearch = p.name.toLowerCase().includes(search) || (p.sku || '').toLowerCase().includes(search) || (p.barcode || '').toLowerCase().includes(search);
         const matchCat = !categoryId || String(p.category_id) === categoryId;
         return matchSearch && matchCat;
     });
-
     const tbody = document.getElementById('productsTable');
     if (!tbody) return;
-
     if (!filtered.length) {
         tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">No products found</td></tr>';
         return;
     }
-
     tbody.innerHTML = filtered.map(p => {
         const cat = allCategories.find(c => c.id === p.category_id);
         const lowStock = p.stock_quantity <= (p.reorder_point || 5);
@@ -322,27 +306,16 @@ function renderProductsTable() {
             <tr>
                 <td><code>${escapeHtml(p.sku)}</code></td>
                 <td>${escapeHtml(p.barcode)}</td>
-                <td><strong>${escapeHtml(p.name)}</strong>
-                    ${p.description ? `<br><small class="text-muted">${escapeHtml(p.description)}</small>` : ''}
-                </td>
+                <td><strong>${escapeHtml(p.name)}</strong>${p.description ? `<br><small class="text-muted">${escapeHtml(p.description)}</small>` : ''}</td>
                 <td>${cat ? escapeHtml(cat.name) : '—'}</td>
                 <td>${fmt(p.price)}</td>
                 <td>${fmt(p.cost)}</td>
-                <td>
-                    <span class="${lowStock ? 'text-warning fw-bold' : ''}">${p.stock_quantity}</span>
-                    ${lowStock ? '<span class="badge bg-warning text-dark ms-1">Low</span>' : ''}
-                </td>
+                <td><span class="${lowStock ? 'text-warning fw-bold' : ''}">${p.stock_quantity}</span>${lowStock ? '<span class="badge bg-warning text-dark ms-1">Low</span>' : ''}</td>
                 <td><span class="badge bg-${p.is_active ? 'success' : 'secondary'}">${p.is_active ? 'Active' : 'Inactive'}</span></td>
                 <td class="text-nowrap">
-                    ${hasPermission('canEditProduct') ? `
-                    <button class="icon-btn icon-btn-edit" title="Edit" onclick="INV.openProductModal(${p.id})"><i class="fas fa-edit"></i></button>
-                    ` : ''}
-                    ${hasPermission('canAdjustStock') ? `
-                    <button class="icon-btn icon-btn-warn" title="Adjust Stock" onclick="INV.openAdjustModal(${p.id})"><i class="fas fa-warehouse"></i></button>
-                    ` : ''}
-                    ${hasPermission('canDeleteProduct') ? `
-                    <button class="icon-btn icon-btn-delete" title="Delete" onclick="INV.deleteProduct(${p.id})"><i class="fas fa-trash"></i></button>
-                    ` : ''}
+                    ${hasPermission('canEditProduct') ? `<button class="icon-btn icon-btn-edit" title="Edit" onclick="INV.openProductModal(${p.id})"><i class="fas fa-edit"></i></button>` : ''}
+                    ${hasPermission('canAdjustStock') ? `<button class="icon-btn icon-btn-warn" title="Adjust Stock" onclick="INV.openAdjustModal(${p.id})"><i class="fas fa-warehouse"></i></button>` : ''}
+                    ${hasPermission('canDeleteProduct') ? `<button class="icon-btn icon-btn-delete" title="Delete" onclick="INV.deleteProduct(${p.id})"><i class="fas fa-trash"></i></button>` : ''}
                 </td>
             </tr>
         `;
@@ -352,12 +325,10 @@ function renderProductsTable() {
 function renderArchivedProductsTable() {
     const tbody = document.getElementById('archivedProductsTable');
     if (!tbody) return;
-
     if (!allArchivedProducts.length) {
         tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">No deleted products found</td></tr>';
         return;
     }
-
     tbody.innerHTML = allArchivedProducts.map(p => {
         const cat = allCategories.find(c => c.id === p.category_id);
         const deletedDate = p.deleted_at ? new Date(p.deleted_at).toLocaleDateString('en-KE') : '—';
@@ -365,24 +336,14 @@ function renderArchivedProductsTable() {
             <tr class="table-secondary">
                 <td><code>${escapeHtml(p.sku)}</code></td>
                 <td>${escapeHtml(p.barcode)}</td>
-                <td><strong>${escapeHtml(p.name)}</strong>
-                    ${p.description ? `<br><small class="text-muted">${escapeHtml(p.description)}</small>` : ''}
-                </td>
+                <td><strong>${escapeHtml(p.name)}</strong>${p.description ? `<br><small class="text-muted">${escapeHtml(p.description)}</small>` : ''}</td>
                 <td>${cat ? escapeHtml(cat.name) : '—'}</td>
                 <td>${fmt(p.price)}</td>
                 <td>${fmt(p.cost)}</td>
                 <td>${deletedDate}</td>
                 <td class="text-nowrap">
-                    ${hasPermission('canRestoreProduct') ? `
-                    <button class="icon-btn icon-btn-success" title="Restore" onclick="INV.restoreProduct(${p.id})">
-                        <i class="fas fa-trash-restore"></i> 
-                    </button>
-                    ` : ''}
-                    ${hasPermission('canPermanentlyDeleteProduct') ? `
-                    <button class="icon-btn icon-btn-danger" title="Permanently Delete" onclick="INV.permanentlyDeleteArchivedProduct(${p.id}, '${escapeHtml(p.name)}')">
-                        <i class="fas fa-skull-crossbones"></i> 
-                    </button>
-                    ` : ''}
+                    ${hasPermission('canRestoreProduct') ? `<button class="icon-btn icon-btn-success" title="Restore" onclick="INV.restoreProduct(${p.id})"><i class="fas fa-trash-restore"></i></button>` : ''}
+                    ${hasPermission('canPermanentlyDeleteProduct') ? `<button class="icon-btn icon-btn-danger" title="Permanently Delete" onclick="INV.permanentlyDeleteArchivedProduct(${p.id}, '${escapeHtml(p.name)}')"><i class="fas fa-skull-crossbones"></i></button>` : ''}
                 </td>
             </tr>
         `;
@@ -404,54 +365,48 @@ function openProductModal(id = null) {
         if (el) el.value = val;
     });
     document.getElementById('productModalTitle').textContent = 'Add Product';
-
     if (id) {
         const p = allProducts.find(p => p.id === id);
         if (!p) return;
-        document.getElementById('productId').value       = p.id;
-        document.getElementById('prodSku').value         = p.sku || '';
-        document.getElementById('prodBarcode').value     = p.barcode || '';
-        document.getElementById('prodName').value        = p.name;
-        document.getElementById('prodDesc').value        = p.description || '';
-        document.getElementById('prodPrice').value       = p.price;
-        document.getElementById('prodCost').value        = p.cost || 0;
-        document.getElementById('prodStock').value       = p.stock_quantity || 0;
-        document.getElementById('prodReorder').value     = p.reorder_point || 5;
+        document.getElementById('productId').value = p.id;
+        document.getElementById('prodSku').value = p.sku || '';
+        document.getElementById('prodBarcode').value = p.barcode || '';
+        document.getElementById('prodName').value = p.name;
+        document.getElementById('prodDesc').value = p.description || '';
+        document.getElementById('prodPrice').value = p.price;
+        document.getElementById('prodCost').value = p.cost || 0;
+        document.getElementById('prodStock').value = p.stock_quantity || 0;
+        document.getElementById('prodReorder').value = p.reorder_point || 5;
         document.getElementById('productCategory').value = p.category_id || '';
-        document.getElementById('prodActive').value      = p.is_active ? '1' : '0';
+        document.getElementById('prodActive').value = p.is_active ? '1' : '0';
         document.getElementById('productModalTitle').textContent = 'Edit Product';
     }
-
     new bootstrap.Modal(document.getElementById('productModal')).show();
 }
 
 async function saveProduct() {
     const id = document.getElementById('productId').value;
     const name = document.getElementById('prodName').value.trim();
-
     if (!name) { showToast('Product name is required', 'warning'); return; }
-
     const data = {
-        sku:            document.getElementById('prodSku').value.trim() || ('SKU-' + Date.now()),
-        barcode:        document.getElementById('prodBarcode').value.trim() || null,
+        sku: document.getElementById('prodSku').value.trim() || ('SKU-' + Date.now()),
+        barcode: document.getElementById('prodBarcode').value.trim() || null,
         name,
-        description:    document.getElementById('prodDesc').value.trim() || null,
-        price:          parseFloat(document.getElementById('prodPrice').value) || 0,
-        cost:           parseFloat(document.getElementById('prodCost').value) || 0,
+        description: document.getElementById('prodDesc').value.trim() || null,
+        price: parseFloat(document.getElementById('prodPrice').value) || 0,
+        cost: parseFloat(document.getElementById('prodCost').value) || 0,
         stock_quantity: parseInt(document.getElementById('prodStock').value) || 0,
-        reorder_point:  parseInt(document.getElementById('prodReorder').value) || 5,
-        category_id:    document.getElementById('productCategory').value || null,
-        is_active:      true,
-        deleted_at:     null,
-        updated_at:     new Date().toISOString()
+        reorder_point: parseInt(document.getElementById('prodReorder').value) || 5,
+        category_id: document.getElementById('productCategory').value || null,
+        is_active: true,
+        deleted_at: null,
+        updated_at: new Date().toISOString()
     };
-
     const result = id
         ? await supabaseClient.from('products').update(data).eq('id', id)
         : await supabaseClient.from('products').insert({ ...data, created_at: new Date().toISOString() });
-
     if (result.error) {
-        showToast(getUserFriendlyErrorMessage(result.error, 'Failed to save product. Please try again.'), 'error');
+        showToast(getUserFriendlyErrorMessage(result.error, 'Failed to save product.'), 'error');
     } else {
         bootstrap.Modal.getInstance(document.getElementById('productModal')).hide();
         showToast(id ? 'Product updated' : 'Product created', 'success');
@@ -466,16 +421,10 @@ async function deleteProduct(id) {
     }
     const confirmed = await showConfirmationToast('Delete this product?', 10000, 'Delete');
     if (!confirmed) return;
-
     const { error } = await supabaseClient
         .from('products')
-        .update({ 
-            is_active: false, 
-            deleted_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-        })
+        .update({ is_active: false, deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
         .eq('id', id);
-
     if (error) {
         showToast(getUserFriendlyErrorMessage(error, 'Failed to delete product.'), 'error');
     } else {
@@ -492,16 +441,10 @@ async function restoreProduct(id) {
     }
     const confirmed = await showConfirmationToast('Restore this product to active inventory?', 8000, 'Restore');
     if (!confirmed) return;
-
     const { error } = await supabaseClient
         .from('products')
-        .update({ 
-            is_active: true, 
-            deleted_at: null,
-            updated_at: new Date().toISOString()
-        })
+        .update({ is_active: true, deleted_at: null, updated_at: new Date().toISOString() })
         .eq('id', id);
-
     if (error) {
         showToast(getUserFriendlyErrorMessage(error, 'Failed to restore product.'), 'error');
     } else {
@@ -514,46 +457,35 @@ async function restoreProduct(id) {
 // ============================================================
 //  5. STOCK
 // ============================================================
-
 async function loadStock() {
     showTableSpinner('stockTable', 6);
-
     const { data: products, error } = await supabaseClient
         .from('products')
         .select('id, sku, name, stock_quantity, reorder_point')
         .eq('is_active', true)
         .is('deleted_at', null)
         .order('name');
-
     if (error) {
-        showToast(getUserFriendlyErrorMessage(error, 'Could not load stock levels. Please check your connection.'), 'error');
+        showToast(getUserFriendlyErrorMessage(error, 'Could not load stock levels.'), 'error');
         return;
     }
-
     const tbody = document.getElementById('stockTable');
     if (!products?.length) {
         tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">No products found</td></tr>';
         return;
     }
-
     tbody.innerHTML = products.map(p => {
         const reorder = p.reorder_point || 5;
-        const isLow   = p.stock_quantity <= reorder;
+        const isLow = p.stock_quantity <= reorder;
         return `
             <tr class="${isLow ? 'table-warning' : ''}">
                 <td><strong>${escapeHtml(p.name)}</strong></td>
                 <td><code>${escapeHtml(p.sku)}</code></td>
                 <td><strong>${p.stock_quantity}</strong></td>
                 <td>${reorder}</td>
-                <td>${isLow
-                    ? '<span class="badge bg-warning text-dark">Low Stock</span>'
-                    : '<span class="badge bg-success">OK</span>'}</td>
+                <td>${isLow ? '<span class="badge bg-warning text-dark">Low Stock</span>' : '<span class="badge bg-success">OK</span>'}</td>
                 <td>
-                    ${hasPermission('canAdjustStock') ? `
-                    <button class="icon-btn icon-btn-warn" title="Adjust Stock" onclick="INV.openAdjustModal(${p.id})">
-                        <i class="fas fa-edit"></i>
-                    </button>
-                    ` : ''}
+                    ${hasPermission('canAdjustStock') ? `<button class="icon-btn icon-btn-warn" title="Adjust Stock" onclick="INV.openAdjustModal(${p.id})"><i class="fas fa-edit"></i></button>` : ''}
                 </td>
             </tr>
         `;
@@ -568,53 +500,42 @@ function openAdjustModal(productId = null) {
     const select = document.getElementById('adjProductSelect');
     select.innerHTML = '<option value="">— Select Product —</option>' +
         allProducts.map(p => `<option value="${p.id}">${escapeHtml(p.name)} (Stock: ${p.stock_quantity})</option>`).join('');
-
     if (productId) select.value = productId;
-
-    document.getElementById('adjQty').value   = '';
+    document.getElementById('adjQty').value = '';
     document.getElementById('adjNotes').value = '';
-
     new bootstrap.Modal(document.getElementById('adjustModal')).show();
 }
 
 async function adjustStock() {
     const productId = document.getElementById('adjProductSelect').value;
-    const qty       = parseInt(document.getElementById('adjQty').value);
-    const notes     = document.getElementById('adjNotes').value.trim();
-
+    const qty = parseInt(document.getElementById('adjQty').value);
+    const notes = document.getElementById('adjNotes').value.trim();
     if (!productId) { showToast('Please select a product', 'warning'); return; }
     if (isNaN(qty) || qty === 0) { showToast('Enter a non-zero quantity change', 'warning'); return; }
-
     const product = allProducts.find(p => String(p.id) === String(productId));
     if (!product) { showToast('Product not found', 'error'); return; }
-
     const newStock = product.stock_quantity + qty;
     if (newStock < 0) {
         showToast(`Cannot reduce below zero. Current stock: ${product.stock_quantity}`, 'error');
         return;
     }
-
     const { error: updateErr } = await supabaseClient
         .from('products')
         .update({ stock_quantity: newStock, updated_at: new Date().toISOString() })
         .eq('id', productId);
-
     if (updateErr) {
-        showToast(getUserFriendlyErrorMessage(updateErr, 'Failed to adjust stock. Please try again.'), 'error');
+        showToast(getUserFriendlyErrorMessage(updateErr, 'Failed to adjust stock.'), 'error');
         return;
     }
-
     await supabaseClient.from('stock_movements').insert({
-        product_id:    parseInt(productId),
+        product_id: parseInt(productId),
         movement_type: 'ADJUSTMENT',
-        quantity:      qty,
-        notes:         notes || 'Manual adjustment',
-        created_by:    currentUser?.id
+        quantity: qty,
+        notes: notes || 'Manual adjustment',
+        created_by: currentUser?.id
     });
-
     bootstrap.Modal.getInstance(document.getElementById('adjustModal')).hide();
     showToast(`Stock updated: ${product.name} → ${newStock}`, 'success');
-
     await loadProducts();
     await loadStock();
 }
@@ -622,46 +543,31 @@ async function adjustStock() {
 // ============================================================
 //  6. SUPPLIERS – with permission checks
 // ============================================================
-
 async function loadSuppliers() {
     showTableSpinner('suppliersTable', 6);
-
     const { data: suppliers, error } = await supabaseClient
         .from('suppliers').select('*').order('name');
-
     if (error) {
         showToast(getUserFriendlyErrorMessage(error, 'Could not load suppliers.'), 'error');
         return;
     }
-
     allSuppliers = suppliers || [];
-    const tbody  = document.getElementById('suppliersTable');
-
+    const tbody = document.getElementById('suppliersTable');
     if (!allSuppliers.length) {
         tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">No suppliers yet</td></tr>';
         return;
     }
-
     tbody.innerHTML = allSuppliers.map(s => `
         <tr>
             <td><strong>${escapeHtml(s.name)}</strong></td>
             <td>${escapeHtml(s.contact_person)}</td>
             <td>${escapeHtml(s.email)}</td>
             <td>${escapeHtml(s.phone)}</td>
-            <td><span class="badge bg-${s.is_active ? 'success' : 'secondary'}">
-                ${s.is_active ? 'Active' : 'Inactive'}</span></td>
+            <td><span class="badge bg-${s.is_active ? 'success' : 'secondary'}">${s.is_active ? 'Active' : 'Inactive'}</span></td>
             <td class="text-nowrap">
-                ${hasPermission('canEditSupplier') ? `
-                <button class="icon-btn icon-btn-edit" onclick="INV.openSupplierModal(${s.id})"><i class="fas fa-edit"></i></button>
-                ` : ''}
-                ${hasPermission('canDeleteSupplier') ? `
-                <button class="icon-btn icon-btn-delete" onclick="INV.deleteSupplier(${s.id})"><i class="fas fa-trash"></i></button>
-                ` : ''}
-                ${hasPermission('canPermanentlyDeleteSupplier') ? `
-                <button class="icon-btn icon-btn-danger" title="Permanently Delete" onclick="INV.permanentlyDeleteSupplier(${s.id}, '${escapeHtml(s.name)}')">
-                    <i class="fas fa-skull-crossbones"></i>
-                </button>
-                ` : ''}
+                ${hasPermission('canEditSupplier') ? `<button class="icon-btn icon-btn-edit" data-action="edit-supplier" data-id="${s.id}"><i class="fas fa-edit"></i></button>` : ''}
+                ${hasPermission('canDeleteSupplier') ? `<button class="icon-btn icon-btn-delete" data-action="delete-supplier" data-id="${s.id}"><i class="fas fa-trash"></i></button>` : ''}
+                ${hasPermission('canPermanentlyDeleteSupplier') ? `<button class="icon-btn icon-btn-danger" title="Permanently Delete" data-action="perm-delete-supplier" data-id="${s.id}" data-label="${escapeHtml(s.name)}"><i class="fas fa-skull-crossbones"></i></button>` : ''}
             </td>
         </tr>
     `).join('');
@@ -684,42 +590,36 @@ function openSupplierModal(id = null) {
     ['supplierId','suppName','suppContact','suppEmail','suppPhone','suppAddress']
         .forEach(f => { const el = document.getElementById(f); if (el) el.value = ''; });
     document.getElementById('supplierModalTitle').textContent = 'Add Supplier';
-
     if (id) {
         const s = allSuppliers.find(s => s.id === id);
         if (!s) return;
-        document.getElementById('supplierId').value  = s.id;
-        document.getElementById('suppName').value    = s.name;
+        document.getElementById('supplierId').value = s.id;
+        document.getElementById('suppName').value = s.name;
         document.getElementById('suppContact').value = s.contact_person || '';
-        document.getElementById('suppEmail').value   = s.email || '';
-        document.getElementById('suppPhone').value   = s.phone || '';
+        document.getElementById('suppEmail').value = s.email || '';
+        document.getElementById('suppPhone').value = s.phone || '';
         document.getElementById('suppAddress').value = s.address || '';
         document.getElementById('supplierModalTitle').textContent = 'Edit Supplier';
     }
-
     new bootstrap.Modal(document.getElementById('supplierModal')).show();
 }
 
 async function saveSupplier() {
-    const id   = document.getElementById('supplierId').value;
+    const id = document.getElementById('supplierId').value;
     const name = document.getElementById('suppName').value.trim();
-
     if (!name) { showToast('Supplier name is required', 'warning'); return; }
-
     const data = {
         name,
         contact_person: document.getElementById('suppContact').value.trim() || null,
-        email:          document.getElementById('suppEmail').value.trim() || null,
-        phone:          document.getElementById('suppPhone').value.trim() || null,
-        address:        document.getElementById('suppAddress').value.trim() || null,
-        is_active:      true,
-        updated_at:     new Date().toISOString()
+        email: document.getElementById('suppEmail').value.trim() || null,
+        phone: document.getElementById('suppPhone').value.trim() || null,
+        address: document.getElementById('suppAddress').value.trim() || null,
+        is_active: true,
+        updated_at: new Date().toISOString()
     };
-
     const result = id
         ? await supabaseClient.from('suppliers').update(data).eq('id', id)
         : await supabaseClient.from('suppliers').insert({ ...data, created_at: new Date().toISOString() });
-
     if (result.error) {
         showToast(getUserFriendlyErrorMessage(result.error, 'Failed to save supplier.'), 'error');
     } else {
@@ -736,10 +636,8 @@ async function deleteSupplier(id) {
     }
     const confirmed = await showConfirmationToast('Delete this supplier? This action cannot be undone.', 8000, 'Delete');
     if (!confirmed) return;
-
     const { error } = await supabaseClient
         .from('suppliers').update({ is_active: false }).eq('id', id);
-
     if (error) {
         showToast(getUserFriendlyErrorMessage(error, 'Failed to delete supplier.'), 'error');
     } else {
@@ -751,30 +649,23 @@ async function deleteSupplier(id) {
 // ============================================================
 //  7. PURCHASE ORDERS – with permission checks
 // ============================================================
-
 async function loadPOs() {
     showTableSpinner('poTable', 7);
-
     if (!allSuppliers.length) await loadSuppliers();
-
     const { data: pos, error } = await supabaseClient
         .from('purchase_orders')
         .select('*')
         .order('order_date', { ascending: false });
-
     if (error) {
         showToast(getUserFriendlyErrorMessage(error, 'Could not load purchase orders.'), 'error');
         return;
     }
-
     allPurchaseOrders = pos || [];
     const tbody = document.getElementById('poTable');
-
     if (!allPurchaseOrders.length) {
         tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">No purchase orders yet</td></tr>';
         return;
     }
-
     const statusClass = { PENDING: 'warning', APPROVED: 'primary', RECEIVED: 'success', CANCELLED: 'danger' };
     tbody.innerHTML = allPurchaseOrders.map(po => {
         const supplier = allSuppliers.find(s => s.id === po.supplier_id);
@@ -787,17 +678,9 @@ async function loadPOs() {
                 <td>${po.order_date || '—'}</td>
                 <td>${po.expected_delivery_date || '—'}</td>
                 <td class="text-nowrap">
-                    ${hasPermission('canMarkPOReceived') && po.status !== 'RECEIVED' && po.status !== 'CANCELLED' ? `
-                    <button class="icon-btn icon-btn-success" title="Mark Received" onclick="INV.markPOReceived(${po.id})"><i class="fas fa-check"></i></button>
-                    ` : ''}
-                    ${hasPermission('canCancelPO') && po.status !== 'RECEIVED' && po.status !== 'CANCELLED' ? `
-                    <button class="icon-btn icon-btn-delete" title="Cancel" onclick="INV.cancelPO(${po.id})"><i class="fas fa-times"></i></button>
-                    ` : ''}
-                    ${hasPermission('canPermanentlyDeletePO') ? `
-                    <button class="icon-btn icon-btn-danger" title="Permanently Delete" onclick="INV.permanentlyDeletePO(${po.id}, '${escapeHtml(po.po_number)}')">
-                        <i class="fas fa-skull-crossbones"></i>
-                    </button>
-                    ` : ''}
+                    ${hasPermission('canMarkPOReceived') && po.status !== 'RECEIVED' && po.status !== 'CANCELLED' ? `<button class="icon-btn icon-btn-success" title="Mark Received" onclick="INV.markPOReceived(${po.id})"><i class="fas fa-check"></i></button>` : ''}
+                    ${hasPermission('canCancelPO') && po.status !== 'RECEIVED' && po.status !== 'CANCELLED' ? `<button class="icon-btn icon-btn-delete" title="Cancel" onclick="INV.cancelPO(${po.id})"><i class="fas fa-times"></i></button>` : ''}
+                    ${hasPermission('canPermanentlyDeletePO') ? `<button class="icon-btn icon-btn-danger" title="Permanently Delete" onclick="INV.permanentlyDeletePO(${po.id}, '${escapeHtml(po.po_number)}')"><i class="fas fa-skull-crossbones"></i></button>` : ''}
                 </td>
             </tr>
         `;
@@ -819,47 +702,41 @@ async function openPOModal() {
         return;
     }
     if (!allSuppliers.length) await loadSuppliers();
-
     const supplierSelect = document.getElementById('poSupplier');
     supplierSelect.innerHTML = allSuppliers.length
         ? allSuppliers.filter(s => s.is_active).map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('')
         : '<option value="">No suppliers available — add one first</option>';
-
-    document.getElementById('poNumber').value  = 'PO-' + Date.now();
-    document.getElementById('poDate').value    = new Date().toISOString().split('T')[0];
-    document.getElementById('poTotal').value   = '';
+    document.getElementById('poNumber').value = 'PO-' + Date.now();
+    document.getElementById('poDate').value = new Date().toISOString().split('T')[0];
+    document.getElementById('poTotal').value = '';
     document.getElementById('poDelivery').value = '';
-    document.getElementById('poNotes').value   = '';
-
+    document.getElementById('poNotes').value = '';
     new bootstrap.Modal(document.getElementById('poModal')).show();
 }
 
 async function savePO() {
-    const poNumber   = document.getElementById('poNumber').value.trim();
+    const poNumber = document.getElementById('poNumber').value.trim();
     const supplierId = parseInt(document.getElementById('poSupplier').value);
-    const total      = parseFloat(document.getElementById('poTotal').value) || 0;
-    const orderDate  = document.getElementById('poDate').value;
-    const delivery   = document.getElementById('poDelivery').value || null;
-    const notes      = document.getElementById('poNotes').value.trim() || null;
-
+    const total = parseFloat(document.getElementById('poTotal').value) || 0;
+    const orderDate = document.getElementById('poDate').value;
+    const delivery = document.getElementById('poDelivery').value || null;
+    const notes = document.getElementById('poNotes').value.trim() || null;
     if (!poNumber || !supplierId || !orderDate) {
         showToast('PO Number, Supplier and Order Date are required', 'warning');
         return;
     }
-
     const { error } = await supabaseClient.from('purchase_orders').insert({
-        po_number:              poNumber,
-        supplier_id:            supplierId,
-        total_amount:           total,
-        order_date:             orderDate,
+        po_number: poNumber,
+        supplier_id: supplierId,
+        total_amount: total,
+        order_date: orderDate,
         expected_delivery_date: delivery,
         notes,
-        status:     'PENDING',
+        status: 'PENDING',
         created_by: currentUser?.id,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
     });
-
     if (error) {
         showToast(getUserFriendlyErrorMessage(error, 'Failed to create purchase order.'), 'error');
     } else {
@@ -876,12 +753,10 @@ async function markPOReceived(id) {
     }
     const confirmed = await showConfirmationToast('Mark this purchase order as received?', 8000, 'Mark Received');
     if (!confirmed) return;
-
     const { error } = await supabaseClient
         .from('purchase_orders')
         .update({ status: 'RECEIVED', received_date: new Date().toISOString().split('T')[0], updated_at: new Date().toISOString() })
         .eq('id', id);
-
     if (error) {
         showToast(getUserFriendlyErrorMessage(error, 'Failed to mark PO as received.'), 'error');
     } else {
@@ -897,12 +772,10 @@ async function cancelPO(id) {
     }
     const confirmed = await showConfirmationToast('Cancel this purchase order?', 8000, 'Cancel PO');
     if (!confirmed) return;
-
     const { error } = await supabaseClient
         .from('purchase_orders')
         .update({ status: 'CANCELLED', updated_at: new Date().toISOString() })
         .eq('id', id);
-
     if (error) {
         showToast(getUserFriendlyErrorMessage(error, 'Failed to cancel purchase order.'), 'error');
     } else {
@@ -912,9 +785,8 @@ async function cancelPO(id) {
 }
 
 // ============================================================
-//  8. STOCK MOVEMENTS
+//  8. STOCK MOVEMENTS (UPDATED with VOID_RESTORE mapping)
 // ============================================================
-
 async function loadMovements() {
     showTableSpinner('movementsTable', 6);
 
@@ -933,29 +805,72 @@ async function loadMovements() {
     const tbody = document.getElementById('movementsTable');
 
     if (!allStockMovements.length) {
-        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">No movements recorded</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">No movements recorded</tr>';
         return;
     }
 
-    const typeClass = { IN: 'success', OUT: 'danger', ADJUSTMENT: 'warning', TRANSFER: 'info' };
-    tbody.innerHTML = allStockMovements.map(m => `
-        <tr>
-            <td>${m.products ? escapeHtml(m.products.name) : '#' + m.product_id}</td>
-            <td><span class="badge bg-${typeClass[m.movement_type] || 'secondary'}">${m.movement_type}</span></td>
-            <td class="${m.quantity > 0 ? 'text-success' : 'text-danger'} fw-bold">
-                ${m.quantity > 0 ? '+' : ''}${m.quantity}
-            </td>
-            <td>${m.reference_type ? escapeHtml(m.reference_type) + ' #' + m.reference_id : '—'}</td>
-            <td>${escapeHtml(m.notes)}</td>
-            <td>${new Date(m.created_at).toLocaleString('en-KE')}</td>
-        </tr>
-    `).join('');
+    const typeClass = {
+        OUT: 'danger',
+        ADJUSTMENT: 'warning',
+        TRANSFER: 'info',
+        SALE: 'success',
+        IN: 'primary'
+    };
+
+    tbody.innerHTML = allStockMovements.map(m => {
+        let displayType = m.movement_type;
+        let badgeClass = typeClass[m.movement_type] || 'secondary';
+        if (m.reference_type === 'SALE_VOID') {
+            displayType = 'Void Restore';
+            badgeClass = 'info';
+        }
+        return `
+            <tr>
+                <td>${m.products ? escapeHtml(m.products.name) : '#' + m.product_id}</td>
+                <td><span class="badge bg-${badgeClass}">${escapeHtml(displayType)}</span></td>
+                <td class="${m.quantity > 0 ? 'text-success' : 'text-danger'} fw-bold">
+                    ${m.quantity > 0 ? '+' : ''}${m.quantity}
+                 </td>
+                <td>${m.reference_type ? escapeHtml(m.reference_type) + ' #' + m.reference_id : '—'}</td>
+                <td>${escapeHtml(m.notes)}</td>
+                <td>${new Date(m.created_at).toLocaleString('en-KE')}</td>
+             </tr>
+        `;
+    }).join('');
 }
 
+async function clearAllMovements() {
+    if (!hasPermission('canClearStockMovements')) {
+        showToast('You do not have permission to clear stock movements.', 'error');
+        return;
+    }
+
+    const confirmed = await showConfirmationToast(
+        '⚠️ PERMANENT ACTION: Delete ALL stock movement records? This cannot be undone.',
+        10000,
+        'Delete All'
+    );
+    if (!confirmed) return;
+
+    try {
+        // Delete all rows from stock_movements
+        const { error } = await supabaseClient
+            .from('stock_movements')
+            .delete()
+            .neq('id', 0); // delete all records
+
+        if (error) throw error;
+
+        showToast('All stock movements have been permanently deleted.', 'success');
+        await loadMovements();
+    } catch (err) {
+        console.error('Clear movements error:', err);
+        showNotification(getUserFriendlyErrorMessage(err, 'Failed to clear movements'), 'error');
+    }
+}
 // ============================================================
 //  9. TAB LISTENERS
 // ============================================================
-
 (function registerTabListeners() {
     const tabMap = {
         '#products-tab':  loadProducts,
@@ -974,77 +889,64 @@ async function loadMovements() {
             tabLink.addEventListener('shown.bs.tab', fn);
         }
     });
-
-    document.getElementById('productSearch')
-        ?.addEventListener('input', renderProductsTable);
-    document.getElementById('categoryFilter')
-        ?.addEventListener('change', renderProductsTable);
+    document.getElementById('productSearch')?.addEventListener('input', renderProductsTable);
+    document.getElementById('categoryFilter')?.addEventListener('change', renderProductsTable);
 })();
 
 // ============================================================
 //  10. BOOT
 // ============================================================
-
 document.addEventListener('DOMContentLoaded', async () => {
     if (!await requireAuth()) return;
-
     if (!canAccessPage('inventory.html')) {
         showToast('Access denied.', 'error');
         setTimeout(() => globalThis.location.href = 'dashboard.html', 1500);
         return;
     }
-
     const userNameEl = document.getElementById('userName');
-    if (userNameEl) {
-        userNameEl.textContent = currentProfile?.first_name || currentUser?.email || 'User';
-    }
+    if (userNameEl) userNameEl.textContent = currentProfile?.first_name || currentUser?.email || 'User';
+    if (typeof applySidebarAccess === 'function') applySidebarAccess();
 
-    if (typeof applySidebarAccess === 'function') {
-        applySidebarAccess();
+    const categoriesTableEl = document.getElementById('categoriesTable');
+    if (categoriesTableEl) {
+        categoriesTableEl.addEventListener('click', async e => {
+            const editBtn = e.target.closest('[data-action="edit-cat"]');
+            const deleteBtn = e.target.closest('[data-action="delete-cat"]');
+            if (editBtn) INV.openCategoryModal(parseInt(editBtn.dataset.id));
+            if (deleteBtn) await INV.deleteCategory(parseInt(deleteBtn.dataset.id), deleteBtn.dataset.label);
+        });
     }
-
+    const suppliersTableEl = document.getElementById('suppliersTable');
+    if (suppliersTableEl) {
+        suppliersTableEl.addEventListener('click', async e => {
+            const editBtn = e.target.closest('[data-action="edit-supplier"]');
+            const deleteBtn = e.target.closest('[data-action="delete-supplier"]');
+            const permDeleteBtn = e.target.closest('[data-action="perm-delete-supplier"]');
+            if (editBtn) INV.openSupplierModal(parseInt(editBtn.dataset.id));
+            if (deleteBtn) await INV.deleteSupplier(parseInt(deleteBtn.dataset.id));
+            if (permDeleteBtn) await INV.permanentlyDeleteSupplier(parseInt(permDeleteBtn.dataset.id), permDeleteBtn.dataset.label);
+        });
+    }
     await loadProducts();
 });
 
 // ============================================================
 //  11. PUBLIC API
 // ============================================================
-
 globalThis.INV = {
-    // Products
-    openProductModal,
-    saveProduct,
-    deleteProduct,
-    restoreProduct,
-    filterProducts: renderProductsTable,
-    permanentlyDeleteArchivedProduct,
-    // Stock
-    openAdjustModal,
-    adjustStock,
-    // Suppliers
-    openSupplierModal,
-    saveSupplier,
-    deleteSupplier,
-    permanentlyDeleteSupplier,
-    // Purchase Orders
-    openPOModal,
-    savePO,
-    markPOReceived,
-    cancelPO,
-    permanentlyDeletePO,
-    // Categories
-    openCategoryModal,
-    saveCategory,
-    deleteCategory
+    openProductModal, saveProduct, deleteProduct, restoreProduct, permanentlyDeleteArchivedProduct,
+    openAdjustModal, adjustStock,
+    openSupplierModal, saveSupplier, deleteSupplier, permanentlyDeleteSupplier,
+    openPOModal, savePO, markPOReceived, cancelPO, permanentlyDeletePO,
+    openCategoryModal, saveCategory, deleteCategory,
+    clearAllMovements  // NEW
 };
 
 // ============================================================
 //  12. EXCEL EXPORT (unchanged)
 // ============================================================
-
 async function exportInventoryToExcel() {
     await Promise.all([loadProducts(), loadStock(), loadSuppliers(), loadPOs(), loadMovements()]);
-
     const productsSheet = {
         name: 'Products',
         title: 'Products Catalog',
@@ -1061,7 +963,6 @@ async function exportInventoryToExcel() {
         ],
         data: allProducts
     };
-
     const stockSheet = {
         name: 'Stock Levels',
         title: 'Current Inventory Stock',
@@ -1074,7 +975,6 @@ async function exportInventoryToExcel() {
         ],
         data: allProducts
     };
-
     const suppliersSheet = {
         name: 'Suppliers',
         title: 'Supplier List',
@@ -1088,7 +988,6 @@ async function exportInventoryToExcel() {
         ],
         data: allSuppliers
     };
-
     const poSheet = {
         name: 'Purchase Orders',
         title: 'Purchase Orders',
@@ -1102,7 +1001,6 @@ async function exportInventoryToExcel() {
         ],
         data: allPurchaseOrders
     };
-
     const movementsSheet = {
         name: 'Stock Movements',
         title: 'Stock Movement History (last 100)',
@@ -1116,7 +1014,6 @@ async function exportInventoryToExcel() {
         ],
         data: allStockMovements
     };
-
     if (typeof exportToExcel === 'function') {
         await exportToExcel('VendGrid_Inventory', [productsSheet, stockSheet, suppliersSheet, poSheet, movementsSheet]);
         showToast('Excel report generated successfully', 'success');
@@ -1124,5 +1021,4 @@ async function exportInventoryToExcel() {
         showToast('Export utility not loaded. Please refresh the page.', 'error');
     }
 }
-
 globalThis.exportInventoryToExcel = exportInventoryToExcel;

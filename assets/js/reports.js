@@ -1,11 +1,9 @@
 /**
  * reports.js – VendGrid Sales Reports
  * 
- * FIXED: Uses your actual schema columns:
- *   - sale_items.total_price instead of subtotal
- *   - No discount_amount in sale_items
- *   - products.is_active instead of is_deleted
- *   - Computes item count from sale_items
+ * FIXED: Uses your actual schema columns.
+ * FIXED: Void sale inserts movement_type = 'IN' (database-compatible).
+ *        UI display will be enhanced in inventory.js to show "Void Restore".
  */
 
 'use strict';
@@ -21,7 +19,6 @@ async function loadReports() {
     startDate.setDate(startDate.getDate() - days);
 
     try {
-        // Join sales with cashier (profiles) – this works because profiles exists
         const { data: sales, error: salesError } = await supabaseClient
             .from('sales')
             .select(`
@@ -33,7 +30,6 @@ async function loadReports() {
 
         if (salesError) throw salesError;
 
-        // For each sale, fetch its items separately (to avoid missing column errors)
         for (const sale of (sales || [])) {
             const { data: items, error: itemsErr } = await supabaseClient
                 .from('sale_items')
@@ -48,7 +44,6 @@ async function loadReports() {
 
         allSales = sales || [];
 
-        // ── KPI Cards ──────────────────────────────────────────────────────
         const totalRevenue = allSales.reduce((s, r) => s + parseFloat(r.total_amount || 0), 0);
         const totalTax     = allSales.reduce((s, r) => s + parseFloat(r.tax_amount    || 0), 0);
         const avgOrder     = allSales.length ? totalRevenue / allSales.length : 0;
@@ -58,7 +53,6 @@ async function loadReports() {
         document.getElementById('avgOrder').innerText     = formatCurrency(avgOrder);
         document.getElementById('totalTax').innerText     = formatCurrency(totalTax);
 
-        // ── Revenue Trend Chart ────────────────────────────────────────────
         const daily = {};
         allSales.forEach(s => {
             const d = (s.sale_date || '').split('T')[0];
@@ -88,7 +82,6 @@ async function loadReports() {
             options: { responsive: true, maintainAspectRatio: false }
         });
 
-        // ── Payment Methods Chart ──────────────────────────────────────────
         const mc = {};
         allSales.forEach(s => {
             const m = (s.payment_method || 'other').toLowerCase();
@@ -187,7 +180,7 @@ function filterSales() {
     renderSalesTable(filtered);
 }
 
-// ── Void sale (restores stock) ────────────────────────────────────────────────
+// ── Void sale (restores stock) – uses 'IN' movement_type for compatibility ─────
 async function voidSale(saleId, transactionNumber) {
     if (!hasPermission('canVoidSale')) {
         showNotification('You do not have permission to void sales.', 'error');
@@ -202,7 +195,6 @@ async function voidSale(saleId, transactionNumber) {
     if (!confirmed) return;
 
     try {
-        // Fetch sale items to restore stock (use quantity, no discount)
         const { data: items, error: itemsErr } = await supabaseClient
             .from('sale_items')
             .select('product_id, quantity')
@@ -210,18 +202,20 @@ async function voidSale(saleId, transactionNumber) {
         if (itemsErr) throw itemsErr;
         if (!items || items.length === 0) throw new Error('No items found for this sale');
 
-        // Update sale status
         const { data: updatedRows, error: updateErr } = await supabaseClient
             .from('sales')
-            .update({ payment_status: 'refunded', refunded_at: new Date().toISOString() })
+            .update({ payment_status: 'refunded' })
             .eq('id', saleId)
             .select('id');
-        if (updateErr) throw updateErr;
+        if (updateErr) {
+            const detail = [updateErr.code, updateErr.hint, updateErr.details, updateErr.message]
+                .filter(Boolean).join(' | ');
+            throw new Error(`Failed to update sale status: ${detail}`);
+        }
         if (!updatedRows || updatedRows.length === 0) {
-            throw new Error('Sale not found or you do not have permission to void it.');
+            throw new Error('Sale could not be voided. Check Row Level Security policy on the sales table.');
         }
 
-        // Restore stock for each item
         for (const item of items) {
             const { data: product, error: prodErr } = await supabaseClient
                 .from('products')
@@ -237,27 +231,29 @@ async function voidSale(saleId, transactionNumber) {
                 .eq('id', item.product_id);
             if (stockErr) throw stockErr;
 
+            // Insert movement with database-compatible 'IN' type
+            // UI will display "Void Restore" based on reference_type (handled in inventory.js)
             await supabaseClient.from('stock_movements').insert({
-                product_id:    item.product_id,
-                movement_type: 'IN',
-                quantity:      item.quantity,
+                product_id:     item.product_id,
+                movement_type:  'IN',               // ✅ kept as 'IN' for DB compatibility
+                quantity:       item.quantity,
                 reference_type: 'SALE_VOID',
-                reference_id:  saleId,
-                notes:         `Stock restored from voided sale ${transactionNumber}`,
-                created_by:    currentUser?.id,
-                created_at:    new Date().toISOString()
+                reference_id:   saleId,
+                notes:          `Stock restored from voided sale ${transactionNumber}`,
+                created_by:     currentUser?.id,
+                created_at:     new Date().toISOString()
             });
         }
 
-        showNotification('Sale voided successfully', 'success');
+        showNotification('Sale voided successfully. Stock has been restored.', 'success');
         await loadReports();
     } catch (err) {
         console.error('Void sale error:', err);
-        showNotification(getUserFriendlyErrorMessage(err, 'Failed to void sale'), 'error');
+        showNotification(err.message || 'Failed to void sale. Check browser console for details.', 'error');
     }
 }
 
-// ── Permanent delete sale (also removes sale_items) ───────────────────────────
+// ── Permanent delete sale ─────────────────────────────────────────────────────
 async function permanentlyDeleteSale(saleId, transactionNumber) {
     if (!hasPermission('canPermanentlyDeleteSale')) {
         showNotification('You do not have permission to permanently delete sales.', 'error');
@@ -272,33 +268,52 @@ async function permanentlyDeleteSale(saleId, transactionNumber) {
     if (!confirmed) return;
 
     try {
-        // Delete sale_items first (foreign key constraint)
-        const { error: itemsErr } = await supabaseClient
+        const { data: deletedItems, error: itemsErr } = await supabaseClient
             .from('sale_items')
             .delete()
-            .eq('sale_id', saleId);
-        if (itemsErr) throw itemsErr;
+            .eq('sale_id', saleId)
+            .select('sale_id');
 
-        // Delete the sale itself
+        if (itemsErr) {
+            const detail = [itemsErr.code, itemsErr.hint, itemsErr.details, itemsErr.message]
+                .filter(Boolean).join(' | ');
+            throw new Error(`Failed to delete sale items: ${detail}`);
+        }
+
+        const { count: remainingCount } = await supabaseClient
+            .from('sale_items')
+            .select('*', { count: 'exact', head: true })
+            .eq('sale_id', saleId);
+
+        if (remainingCount > 0) {
+            throw new Error('Could not delete sale items. Check RLS policy on sale_items.');
+        }
+
         const { data: deletedRows, error: saleErr } = await supabaseClient
             .from('sales')
             .delete()
             .eq('id', saleId)
             .select('id');
-        if (saleErr) throw saleErr;
+
+        if (saleErr) {
+            const detail = [saleErr.code, saleErr.hint, saleErr.details, saleErr.message]
+                .filter(Boolean).join(' | ');
+            throw new Error(`Failed to delete sale: ${detail}`);
+        }
         if (!deletedRows || deletedRows.length === 0) {
-            throw new Error('Sale not found or you do not have permission to delete it.');
+            throw new Error('Sale could not be deleted. Check RLS policy on sales.');
         }
 
         showNotification(`Sale "${transactionNumber}" permanently deleted.`, 'success');
         await loadReports();
     } catch (err) {
         console.error('Delete sale error:', err);
-        showNotification(getUserFriendlyErrorMessage(err, 'Deletion failed'), 'error');
+        showNotification(err.message || 'Deletion failed.', 'error');
     }
 }
 
-// ── Export to Excel (unchanged logic, uses correct columns) ───────────────────
+
+
 async function exportSalesToExcel() {
     if (!allSales.length) {
         showNotification('No data to export', 'warning');
@@ -313,10 +328,9 @@ async function exportSalesToExcel() {
             { label: 'Date',           key: 'sale_date',           transform: v => formatDate(v), align: 'center' },
             { label: 'Cashier',        key: 'cashier',             transform: v => v ? `${v.first_name || ''} ${v.last_name || ''}`.trim() || v.email || '—' : '—', align: 'left' },
             { label: 'Items',          key: 'sale_items',          transform: v => Array.isArray(v) ? v.length : '—', align: 'center' },
-            { label: 'Subtotal (KES)', key: 'subtotal',            format: 'currency', align: 'right' },
+            { label: 'Total (KES)',    key: 'total_amount',        format: 'currency', align: 'right' },
             { label: 'Tax (KES)',      key: 'tax_amount',          format: 'currency', align: 'right' },
             { label: 'Discount (KES)', key: 'discount_amount',     format: 'currency', align: 'right' },
-            { label: 'Total (KES)',    key: 'total_amount',        format: 'currency', align: 'right' },
             { label: 'Payment',        key: 'payment_method',      align: 'center'  },
             { label: 'Status',         key: 'payment_status',      align: 'center'  }
         ],
@@ -364,13 +378,12 @@ async function exportSalesToExcel() {
 }
 globalThis.exportSalesToExcel = exportSalesToExcel;
 
-// ── Product Performance (uses is_active, not is_deleted) ──────────────────────
+// ── Product Performance (unchanged) ──────────────────────────────────────────
 async function loadProductPerformance(days) {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
 
     try {
-        // Fetch all active products
         const { data: products, error: prodErr } = await supabaseClient
             .from('products')
             .select('id, name, sku, price, stock_quantity')
@@ -386,7 +399,6 @@ async function loadProductPerformance(days) {
             return;
         }
 
-        // Fetch sale items for the period
         const { data: saleItems, error: siErr } = await supabaseClient
             .from('sale_items')
             .select('product_id, quantity')
@@ -467,7 +479,7 @@ function renderProductPerformance(top, slow) {
         </div>`;
 }
 
-// ── PDF export ────────────────────────────────────────────────────────────────
+// ── PDF export (unchanged) ────────────────────────────────────────────────────
 function exportSalesToPDF() {
     const periodSelect = document.getElementById('periodSelect');
     const periodText   = periodSelect.options[periodSelect.selectedIndex]?.text || 'Selected period';
@@ -483,7 +495,25 @@ function exportSalesToPDF() {
         catch(e) { console.warn('Chart capture failed', e); }
     }
 
-    const salesTableHtml = document.getElementById('salesTable')?.innerHTML || '';
+    const cleanRows = allSales.map(s => {
+        let cashierDisplay = '—';
+        if (s.cashier) {
+            const name = `${s.cashier.first_name || ''} ${s.cashier.last_name || ''}`.trim();
+            cashierDisplay = escapeHtml(name || s.cashier.email || '—');
+        }
+        const itemCount   = Array.isArray(s.sale_items) ? s.sale_items.length : '—';
+        const statusBg    = s.payment_status === 'completed' ? '#28a745'
+                          : s.payment_status === 'refunded'  ? '#6c757d' : '#ffc107';
+        const statusColor = s.payment_status === 'pending' ? '#000' : '#fff';
+        return `<tr>
+            <td>${escapeHtml(s.transaction_number || '—')}</td>
+            <td>${formatDate(s.sale_date)}</td>
+            <td>${cashierDisplay}</td>
+            <td>${itemCount}</td>
+            <td>${formatCurrency(s.total_amount)}</td>
+            <td><span style="padding:2px 6px;border-radius:4px;background:${statusBg};color:${statusColor};font-size:12px">${escapeHtml(s.payment_status || '—')}</span></td>
+        </tr>`;
+    }).join('');
 
     const win = globalThis.open('', '_blank', 'width=1000,height=800');
     win.document.write(`<!DOCTYPE html><html>
@@ -513,7 +543,7 @@ function exportSalesToPDF() {
         <div class="table-responsive">
             <table class="table table-bordered">
                 <thead><tr><th>Transaction #</th><th>Date</th><th>Cashier</th><th>Items</th><th>Total</th><th>Status</th></tr></thead>
-                <tbody>${salesTableHtml}</tbody>
+                <tbody>${cleanRows}</tbody>
             </table>
         </div>
         <div class="text-muted mt-4" style="font-size:12px;">VendGrid POS System – Confidential</div>
@@ -523,11 +553,16 @@ function exportSalesToPDF() {
 }
 globalThis.exportSalesToPDF = exportSalesToPDF;
 
-// ── Event wires ───────────────────────────────────────────────────────────────
-document.getElementById('periodSelect')?.addEventListener('change', loadReports);
-document.getElementById('salesSearch')?.addEventListener('input', filterSales);
 
-// ── Boot ──────────────────────────────────────────────────────────────────────
+
+
+
+
+
+
+
+
+// ── Event wires ───────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
     if (!await requireAuth()) return;
     if (!canAccessPage('reports.html')) {
@@ -539,6 +574,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     const nameEl = document.getElementById('userName');
     if (nameEl) nameEl.innerText = currentProfile?.first_name || currentUser?.email || 'User';
     if (typeof applySidebarAccess === 'function') applySidebarAccess();
+
+    document.getElementById('periodSelect')?.addEventListener('change', loadReports);
+    document.getElementById('salesSearch')?.addEventListener('input', filterSales);
 
     const salesTable = document.getElementById('salesTable');
     if (salesTable) {

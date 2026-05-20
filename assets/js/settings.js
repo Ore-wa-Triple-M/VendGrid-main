@@ -196,5 +196,22 @@ async function saveSettings() {
     }
 }
 
+
+  // Theme toggle buttons logic
+        document.getElementById('lightModeBtn')?.addEventListener('click', () => globalThis.themeManager.setTheme('light'));
+        document.getElementById('darkModeBtn')?.addEventListener('click', () => globalThis.themeManager.setTheme('dark'));
+        // Update button active state when theme changes
+        globalThis.addEventListener('themeChanged', (e) => {
+            const isDark = e.detail.theme === 'dark';
+            document.getElementById('lightModeBtn')?.classList.toggle('active', !isDark);
+            document.getElementById('darkModeBtn')?.classList.toggle('active', isDark);
+        });
+        // Initial active state
+        if (globalThis.themeManager) {
+            const isDark = globalThis.themeManager.getCurrent() === 'dark';
+            document.getElementById('lightModeBtn')?.classList.toggle('active', !isDark);
+            document.getElementById('darkModeBtn')?.classList.toggle('active', isDark);
+        }
+
 globalThis.saveSettings  = saveSettings;
 globalThis.loadSettings  = loadSettings;

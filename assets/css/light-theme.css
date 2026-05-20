@@ -1,0 +1,74 @@
+/* light-theme.css – VendGrid Light Theme (default) */
+:root {
+    /* Backgrounds */
+    --bg-body: #ffffff;
+    --bg-sidebar: #ffffff;
+    --bg-navbar: rgba(0, 123, 255, 0.95);
+    --bg-card: #ffffff;
+    --bg-hover: #f0f2f5;
+    --bg-table-stripe: #f8f9fa;
+    --bg-modal: #ffffff;
+
+    /* Text colours */
+    --text-primary: #343a40;
+    --text-secondary: #6c757d;
+    --text-muted: #6c757d;
+    --text-light: #ffffff;
+
+    /* Borders */
+    --border-color: #e9ecef;
+    --border-light: #dee2e6;
+
+    /* Links & Buttons */
+    --link-color: #007bff;
+    --link-hover: #0056b3;
+    --btn-primary-bg: linear-gradient(135deg, #007bff, #0056b3);
+    --btn-primary-hover: linear-gradient(135deg, #0056b3, #007bff);
+
+    /* Sidebar */
+    --sidebar-item-color: #6c757d;
+    --sidebar-item-active-bg: #f0f2f5;
+    --sidebar-item-active-color: #007bff;
+    --sidebar-item-active-border: #007bff;
+
+    /* Cards & Widgets */
+    --widget-bg: #ffffff;
+    --widget-shadow: 0 2px 10px rgba(0,0,0,0.08);
+    --widget-hover-shadow: 0 4px 20px rgba(0,0,0,0.12);
+    --widget-icon-sales: linear-gradient(135deg, #28a745, #20c997);
+    --widget-icon-transactions: linear-gradient(135deg, #007bff, #6610f2);
+    --widget-icon-inventory: linear-gradient(135deg, #ffc107, #fd7e14);
+    --widget-icon-lowstock: linear-gradient(135deg, #dc3545, #e83e8c);
+
+    /* Tables */
+    --table-header-bg: #f8f9fa;
+    --table-header-color: #343a40;
+    --table-border: #e9ecef;
+
+    /* Charts */
+    --chart-line-color: #667eea;
+    --chart-fill: rgba(102,126,234,0.1);
+
+    /* Toast & Confirm */
+    --toast-success-bg: #198754;
+    --toast-error-bg: #dc3545;
+    --toast-warning-bg: #ffc107;
+    --toast-info-bg: #0dcaf0;
+    --confirm-overlay-bg: rgba(0,0,0,0.45);
+    --confirm-dialog-bg: #fff;
+    --confirm-cancel-bg: #f1f3f5;
+    --confirm-cancel-hover: #e2e6ea;
+    --confirm-confirm-bg: #dc3545;
+    --confirm-confirm-hover: #b02a37;
+
+    /* Login page */
+    --login-card-bg: rgba(255,255,255,0.95);
+    --login-card-shadow: 0 20px 40px rgba(0,0,0,0.1);
+    --login-background: linear-gradient(135deg, #2c3e50 0%, #34495e 50%, #3498db 100%);
+
+    /* POS */
+    --pos-cart-bg: #ffffff;
+    --pos-cart-summary-bg: #f8f9fa;
+    --pos-product-card-bg: #ffffff;
+    --pos-product-card-shadow: 0 2px 5px rgba(0,0,0,0.05);
+}
