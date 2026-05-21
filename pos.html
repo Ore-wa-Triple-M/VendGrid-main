@@ -48,29 +48,54 @@
             <div id="categoryFilter" class="mb-3 d-flex gap-2 flex-wrap"></div>
             <div id="productGrid" class="product-grid"></div>
         </div>
-        <div class="cart-panel">
-            <div class="p-3 bg-light border-bottom"><h5 class="mb-0"><i class="fas fa-shopping-cart me-2"></i>Cart</h5></div>
-            <div id="cartItems" class="flex-grow-1 overflow-auto" style="max-height: 400px;"></div>
+   <div class="cart-panel">
+    <div class="cart-panel-1">
+        <!-- Panel Header -->
+        <div class="p-3 bg-light border-bottom"><h5 class="mb-0"><i class="fas fa-shopping-cart me-2"></i>Cart</h5></div>
+         <!-- Table Header Row with Vertical Rules -->
+       <!-- Changed auto to 80px and added text-center to keep the action column neat -->
+<div class="p-3 bg-light border-bottom" style="display: grid; grid-template-columns: 3fr 1fr 1fr 1fr 80px; gap: 15px; align-items: center;">
+    <h6 class="mb-0 d-flex align-items-center"><i class="fas fa-shopping-bag me-1"></i>Products</h6> 
+    <h6 class="mb-0 ps-3 border-start d-flex align-items-center"><i class="fas fa-tag me-1"></i>Unit Price</h6>
+    <h6 class="mb-0 ps-3 border-start d-flex align-items-center"><i class="fas fa-box me-1"></i>Quantity</h6>
+    <h6 class="mb-0 ps-3 border-start d-flex align-items-center"><i class="fas fa-calculator me-1"></i>Subtotal</h6>
+    <h6 class="mb-0 ps-3 border-start d-flex align-items-center justify-content-center"><i class="fas fa-cogs me-1"></i>Actions</h6> 
+</div>
+         <div id="cartItems" class="flex-grow-1 overflow-auto" style="max-height: 470px;"></div>
+    </div>
+          
             <div class="cart-summary">
-                <div class="summary-row"><span>Subtotal:</span><span id="subtotal">KES 0.00</span></div>
-                <div class="summary-row"><span>VAT (<span id="vatRateDisplay">16</span>%):</span><span id="tax">KES 0.00</span></div>
-                <div class="summary-row"><span>Discount:</span><input type="number" id="discount" class="form-control form-control-sm" style="width: 100px;" value="0" step="0.01"></div>
-                <div class="summary-row total-row"><span>Total:</span><span id="total">KES 0.00</span></div>
-                <div id="cashChangeSection" style="display: none;">
-                    <div class="summary-row"><span>Amount Tendered (KES):</span><input type="number" id="amountTendered" class="form-control form-control-sm" style="width: 120px;" value="0" step="0.01"></div>
-                    <div class="summary-row"><span>Change:</span><span id="changeAmount">KES 0.00</span></div>
-                </div>
-                <select id="paymentMethod" class="form-select mt-2">
+              <div class="cart-summary-1"> 
+                    <div class="summary-row"><span>Subtotal:</span><span id="subtotal">KES 0.00</span></div>
+                    <div class="summary-row"><span>VAT (<span id="vatRateDisplay">16</span>%):</span><span id="tax">KES 0.00</span></div>
+                    <div class="summary-row"><span>Discount:</span><input type="number" id="discount" class="form-control form-control-sm" style="width: 100px;" value="0" step="0.01"></div>
+                   <div class="summary-row total-row"><span>Total:</span><span id="total">KES 0.00</span></div>
+                    <div id="cashChangeSection" style="display: none;">
+                        <div class="summary-row"><span>Amount Tendered (KES):</span><input type="number" id="amountTendered" class="form-control form-control-sm" style="width: 120px;" value="0" step="0.01"></div>
+                        <div class="summary-row"><span>Change:</span><span id="changeAmount">KES 0.00</span></div>
+                    </div>
+                     <select id="paymentMethod" class="form-select mt-2">
                     <option value="cash">Cash</option>
                     <option value="card">Card</option>
                     <option value="mobile">Mobile</option>
-                </select>
-                <button class="btn btn-success w-100 mt-3" onclick="completeSale()"><i class="fas fa-check-circle me-2"></i>Complete Sale</button>
-                <button class="btn btn-outline-secondary w-100 mt-2" onclick="generateReceipt()"><i class="fas fa-receipt me-2"></i>Generate Receipt</button>
-                <button class="btn btn-outline-danger w-100 mt-2" onclick="clearCart()"><i class="fas fa-trash me-2"></i>Clear Cart</button>
+                  </select>               
+                </div>
+                <div class="cart-summary-2">
+                    <button class="btn btn-success w-100 mt-3" onclick="completeSale()"><i class="fas fa-check-circle me-2"></i>Complete Sale</button>
+                    <button class="btn btn-outline-secondary w-100 mt-2" onclick="generateReceipt()"><i class="fas fa-receipt me-2"></i>Generate Receipt</button>
+                    <button class="btn btn-outline-danger w-100 mt-2" onclick="clearCart()"><i class="fas fa-trash me-2"></i>Clear Cart</button>
+                </div>
             </div>
+           
+
+
+
+
+            </div>
+       
+       
         </div>
-    </div>
+    
 
     <!-- Receipt Modal -->
     <div class="modal fade" id="receiptModal" tabindex="-1">

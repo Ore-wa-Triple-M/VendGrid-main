@@ -1,5 +1,5 @@
 /**
- * theme-manager.js – Dark/Light mode switching
+ * theme-manager.js – Dark/Light mode switching with chart support
  */
 (function() {
     'use strict';
@@ -31,12 +31,12 @@
         localStorage.setItem(STORAGE_KEY, theme);
         currentTheme = theme;
 
-        // Dispatch event for other scripts (e.g., settings page toggle)
-        window.dispatchEvent(new CustomEvent('themeChanged', { detail: { theme } }));
+        // Dispatch event for other scripts (e.g., charts, dynamic UI)
+        globalThis.dispatchEvent(new CustomEvent('themeChanged', { detail: { theme } }));
     }
 
     function getSystemTheme() {
-        return window.matchMedia('(prefers-color-scheme: dark)').matches ? THEME_DARK : THEME_LIGHT;
+        return globalThis.matchMedia('(prefers-color-scheme: dark)').matches ? THEME_DARK : THEME_LIGHT;
     }
 
     function initTheme() {
@@ -53,15 +53,23 @@
         applyTheme(newTheme);
     }
 
+    /**
+     * Helper to get a CSS variable value (for charts)
+     */
+    function getCSSVariable(name) {
+        return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    }
+
     // Expose globally
-    window.themeManager = {
+    globalThis.themeManager = {
         toggle: toggleTheme,
         getCurrent: () => currentTheme,
-        setTheme: applyTheme
+        setTheme: applyTheme,
+        getCSSVariable: getCSSVariable
     };
 
-    // Listen for system preference changes (optional)
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+    // Listen for system preference changes
+    globalThis.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
         if (!localStorage.getItem(STORAGE_KEY)) {
             applyTheme(e.matches ? THEME_DARK : THEME_LIGHT);
         }

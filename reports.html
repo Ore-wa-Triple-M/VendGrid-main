@@ -72,15 +72,18 @@
             <div class="col-md-3"><div class="stat-card"><h6 class="text-muted">Total Tax (VAT)</h6><h3 id="totalTax">-</h3></div></div>
         </div>
 
-        <!-- Charts Row -->
-        <div class="row g-4 mb-4">
-            <div class="col-lg-8"><div class="stat-card"><canvas id="revenueChart" height="300"></canvas></div></div>
+        
+     <!-- Charts Row -->
+        <div class="row g-4 mb-4"
+         style="
+        justify-content: center;
+        display: flex;
+        flex-direction: column;
+        align-items: center;">
             <div class="col-lg-4"><div class="stat-card"><canvas id="paymentChart" height="300"></canvas></div></div>
+            <div class="col-lg-8"><div class="stat-card"><canvas id="revenueChart" height="300"></canvas></div></div>
         </div>
-
-        <!-- Product Performance (Phase 3) -->
-        <div id="productPerformanceContainer"></div>
-        <!-- Transaction Table -->
+    <!-- Transaction Table -->
         <div class="stat-card">
 
             
@@ -90,22 +93,42 @@
                        style="width:220px;" placeholder="Search transactions…">
             </div>
             <div class="table-responsive">
-                <table class="table table-hover">
-                    <thead>
-                        <tr>
-                            <th>Transaction #</th>
-                            <th>Date</th>
-                            <th>Cashier</th>
-                            <th>Items</th>
-                            <th>Total</th>
-                            <th>Status</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody id="salesTable"></tbody>
-                </table>
+             <table class="table table-hover">
+    <thead>
+        <tr>
+            <th>Transaction #</th>
+            <th>Date</th>
+            <th>Cashier</th>
+            <th>MOP</th><!--method of payment-->
+            <th>Item</th><!--name of the item sold-->
+            <th>Qty</th><!--quantity of the item sold-->
+            <th>Utp</th><!--unit price of the item sold-->
+            <th>Subtotal</th>
+            <th>Status</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tfoot>
+        <tr>
+            <!-- 1. Spans the first 8 columns (Transaction # down to Subtotal) -->
+            <th colspan="7" class="p-3 " ></th>
+            
+            <!-- 2. Spans the last 2 columns (Status and Actions) -->
+            <th colspan="3" class="p-3  ">
+                <span class="text-muted me-2">Total Sales:</span>
+                <span class="fs-5 fw-bold text-dark" id="footerTotal">$0.00</span>
+            </th>
+        </tr>
+    </tfoot>
+    <tbody id="salesTable"></tbody>
+    </table>
+                
             </div>
         </div>
+      
+
+        <!-- Product Performance (Phase 3) -->
+        <div id="productPerformanceContainer"></div>
     </div>
 
 

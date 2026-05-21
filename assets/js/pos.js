@@ -18,6 +18,7 @@ let businessInfo = {
 };
 let pendingPaymentSaleId = null;
 let paymentCheckInterval = null;
+let paymentPollTimeout = null;
 
 // ---------------------------------------------------------------------------
 // UI HELPER – M-Pesa Phone Input Modal (replaces browser prompt)
@@ -66,7 +67,7 @@ function showPhoneInputModal() {
         document.body.insertAdjacentHTML('beforeend', modalHtml);
         const modalElement = document.getElementById(modalId);
         const modal = new bootstrap.Modal(modalElement, {
-            backdrop: 'static',  // prevent accidental close by backdrop click? We'll handle cancel via button/close.
+            backdrop: 'static',
             keyboard: true
         });
 
@@ -92,14 +93,11 @@ function showPhoneInputModal() {
 
         const validateAndConfirm = () => {
             const rawPhone = phoneInput ? phoneInput.value.trim() : '';
-            // Validation: must start with 07, 01, or 254
-            if (!rawPhone.match(/^(07|01|254)/)) {
-                showNotification('Please enter a valid phone number starting with 07, 01, or 254', 'error');
-                return;
-            }
-            // Additional basic length check (optional but user-friendly)
-            if (rawPhone.length < 9) {
-                showNotification('Phone number too short', 'error');
+            // Remove all non-digits
+            const digits = rawPhone.replace(/\D/g, '');
+            // Validate: 10 digits starting with 0 OR 12 digits starting with 254
+            if (!((digits.length === 10 && digits.startsWith('0')) || (digits.length === 12 && digits.startsWith('254')))) {
+                showNotification('Phone number must be 10 digits starting with 0 (e.g., 0712345678) or 12 digits starting with 254 (e.g., 254712345678)', 'error');
                 return;
             }
             resolveWith(rawPhone);
@@ -161,12 +159,10 @@ async function loadPOSData() {
 function renderCategories() {
     const container = document.getElementById('categoryFilter');
     if (!container) return;
-    // Clear container and add category buttons, but no active button by default
     container.innerHTML = '<button class="btn btn-sm btn-outline-primary" data-cat="all">All</button>';
     categories.forEach(cat => {
         container.innerHTML += `<button class="btn btn-sm btn-outline-primary" data-cat="${cat.id}">${escapeHtml(cat.name)}</button>`;
     });
-    // Remove active class from all initially
     document.querySelectorAll('#categoryFilter button').forEach(btn => btn.classList.remove('active'));
     
     document.querySelectorAll('#categoryFilter button').forEach(btn => {
@@ -185,7 +181,6 @@ function renderProducts() {
     const search    = (document.getElementById('searchInput')?.value || '').toLowerCase();
     const activeCat = document.querySelector('#categoryFilter button.active')?.dataset.cat;
     
-    // If no category selected and search is empty, show nothing
     if (!activeCat && !search) {
         const grid = document.getElementById('productGrid');
         if (grid) {
@@ -269,6 +264,11 @@ function updateQuantity(id, delta) {
     renderCart();
 }
 
+function removeCartItem(id) {
+    cart = cart.filter(i => i.id !== id);
+    renderCart();
+}
+
 function clearCart() {
     cart = [];
     renderCart();
@@ -281,11 +281,16 @@ function clearCart() {
         paymentCheckInterval = null;
         pendingPaymentSaleId = null;
     }
+    if (paymentPollTimeout) {
+        clearTimeout(paymentPollTimeout);
+        paymentPollTimeout = null;
+    }
 }
 
 function renderCart() {
     const container = document.getElementById('cartItems');
     if (!container) return;
+    
     if (!cart.length) {
         container.innerHTML = `
             <div class="text-center text-muted p-5">
@@ -295,18 +300,53 @@ function renderCart() {
         updateTotals();
         return;
     }
-    container.innerHTML = cart.map(item => `
-        <div class="cart-item">
-            <div class="cart-item-name">${escapeHtml(item.name)}</div>
-            ${item.description ? `<div class="cart-item-desc small text-muted">${escapeHtml(item.description)}</div>` : ''}
-            <div class="d-flex align-items-center gap-2 mt-1">
-                <button class="quantity-btn" onclick="updateQuantity(${item.id}, -1)"><i class="fas fa-minus"></i></button>
-                <span>${item.quantity}</span>
-                <button class="quantity-btn" onclick="updateQuantity(${item.id}, 1)"><i class="fas fa-plus"></i></button>
+    
+    // Match the grid template columns from the header row:
+    // 3fr 1fr 1fr 1fr auto
+   const gridStyle = "display: grid; grid-template-columns: 3fr 1fr 1fr 1fr 80px; gap: 15px; align-items: center;";
+   container.innerHTML = cart.map(item => {
+    const itemTotal = item.price * item.quantity;
+    return `
+        <div class="p-3 border-bottom" style="${gridStyle}">
+            <!-- 1. Products Column (3fr) -->
+            <div class="d-flex flex-column justify-content-center">
+                <div class="fw-semibold text-dark">${escapeHtml(item.name)}</div>
+                ${item.description ? `<div class="small text-muted">${escapeHtml(item.description)}</div>` : ''}
             </div>
-            <div class="cart-item-price">${formatCurrency(item.price * item.quantity)}</div>
+            
+            <!-- 2. Unit Price Column (1fr) -->
+            <div class="ps-3 border-start d-flex align-items-center h-100">
+                <span>${formatCurrency(item.price)}</span>
+            </div>
+            
+            <!-- 3. Quantity Column (1fr) -->
+            <div class="ps-3 border-start d-flex align-items-center h-100">
+                <div class="d-flex align-items-center gap-2">
+                    <button class="btn btn-sm btn-outline-secondary" onclick="updateQuantity(${item.id}, -1)">
+                        <i class="fas fa-minus"></i>
+                    </button>
+                    <span class="fw-semibold px-1">${item.quantity}</span>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="updateQuantity(${item.id}, 1)">
+                        <i class="fas fa-plus"></i>
+                    </button>
+                </div>
+            </div>
+            
+            <!-- 4. Total Column (1fr) -->
+            <div class="ps-3 border-start fw-semibold d-flex align-items-center h-100">
+                <span>${formatCurrency(itemTotal)}</span>
+            </div>
+            
+            <!-- 5. Actions Column (80px) -->
+            <div class="ps-3 border-start d-flex align-items-center justify-content-center h-100">
+                <button class="btn btn-sm btn-outline-danger" onclick="removeCartItem(${item.id})">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
         </div>
-    `).join('');
+    `;
+}).join('');
+    
     updateTotals();
 }
 
@@ -386,7 +426,7 @@ async function completeSale() {
         });
 
         if (saleError) {
-            showNotification('Sale creation failed: ' + saleError.message, 'error');
+            showNotification('Sale creation failed: ' + getUserFriendlyErrorMessage(saleError), 'error');
             return;
         }
 
@@ -410,8 +450,15 @@ async function completeSale() {
 
         showNotification('STK push sent. Please check your phone and enter PIN.', 'info');
 
-        // Poll for payment status
+        // Clear any existing timers
+        if (paymentCheckInterval) clearInterval(paymentCheckInterval);
+        if (paymentPollTimeout) clearTimeout(paymentPollTimeout);
+
+        // Poll for payment status with timeout (60 seconds)
         pendingPaymentSaleId = saleId;
+        const pollStartTime = Date.now();
+        const MAX_POLL_TIME = 60000; // 60 seconds
+
         paymentCheckInterval = setInterval(async () => {
             const { data: saleCheck, error: checkError } = await supabaseClient
                 .from('sales')
@@ -423,7 +470,9 @@ async function completeSale() {
 
             if (saleCheck.payment_status === 'completed') {
                 clearInterval(paymentCheckInterval);
+                clearTimeout(paymentPollTimeout);
                 paymentCheckInterval = null;
+                paymentPollTimeout = null;
                 pendingPaymentSaleId = null;
                 showNotification('Payment successful! Transaction: ' + transactionNumber, 'success');
                 const receiptSnapshot = { items: cart.map(i => ({ ...i })), discount, tendered: 0 };
@@ -432,11 +481,31 @@ async function completeSale() {
                 await loadPOSData();
             } else if (saleCheck.payment_status === 'failed') {
                 clearInterval(paymentCheckInterval);
+                clearTimeout(paymentPollTimeout);
                 paymentCheckInterval = null;
+                paymentPollTimeout = null;
                 pendingPaymentSaleId = null;
                 showNotification('Payment failed. Please try again.', 'error');
+            } else if (Date.now() - pollStartTime >= MAX_POLL_TIME) {
+                // Timeout
+                clearInterval(paymentCheckInterval);
+                clearTimeout(paymentPollTimeout);
+                paymentCheckInterval = null;
+                paymentPollTimeout = null;
+                pendingPaymentSaleId = null;
+                showNotification('Payment confirmation timed out. Please check transaction status in reports.', 'warning');
             }
         }, 3000);
+
+        paymentPollTimeout = setTimeout(() => {
+            if (paymentCheckInterval) {
+                clearInterval(paymentCheckInterval);
+                paymentCheckInterval = null;
+                paymentPollTimeout = null;
+                pendingPaymentSaleId = null;
+                showNotification('Payment confirmation timed out. Please check transaction status in reports.', 'warning');
+            }
+        }, MAX_POLL_TIME);
 
         return;
     }
@@ -456,7 +525,7 @@ async function completeSale() {
     });
 
     if (error) {
-        showNotification('Sale failed: ' + error.message, 'error');
+        showNotification('Sale failed: ' + getUserFriendlyErrorMessage(error), 'error');
         return;
     }
 
@@ -599,9 +668,14 @@ function generateReceipt(transactionNumber = null, snapshot = null, amountTender
 }
 
 // ---------------------------------------------------------------------------
-// EMAIL / SMS FROM MODAL
+// EMAIL / SMS FROM MODAL (using global transaction number)
 // ---------------------------------------------------------------------------
-async function sendReceiptEmailFromModal(transactionNumber) {
+async function sendReceiptEmailFromModal() {
+    const transactionNumber = globalThis._lastTransactionNumber;
+    if (!transactionNumber) {
+        showNotification('No transaction number available', 'error');
+        return;
+    }
     const email = document.getElementById('receiptEmail')?.value.trim();
     if (!email) {
         showNotification('Please enter an email address', 'warning');
@@ -611,7 +685,12 @@ async function sendReceiptEmailFromModal(transactionNumber) {
     await globalThis.sendReceiptEmail(email, receiptHtml, transactionNumber);
 }
 
-async function sendReceiptSMSFromModal(transactionNumber) {
+async function sendReceiptSMSFromModal() {
+    const transactionNumber = globalThis._lastTransactionNumber;
+    if (!transactionNumber) {
+        showNotification('No transaction number available', 'error');
+        return;
+    }
     const phone = document.getElementById('receiptPhone')?.value.trim();
     if (!phone) {
         showNotification('Please enter a phone number', 'warning');
@@ -677,6 +756,7 @@ globalThis.sendReceiptEmailFromModal = sendReceiptEmailFromModal;
 globalThis.sendReceiptSMSFromModal   = sendReceiptSMSFromModal;
 globalThis.addToCart = addToCart;
 globalThis.updateQuantity = updateQuantity;
+globalThis.removeCartItem = removeCartItem;
 globalThis.clearCart = clearCart;
 globalThis.completeSale = completeSale;
 globalThis.generateReceipt = generateReceipt;

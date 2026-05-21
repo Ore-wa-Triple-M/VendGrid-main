@@ -1,9 +1,12 @@
 /**
  * reports.js – VendGrid Sales Reports
- * 
- * FIXED: Uses your actual schema columns.
- * FIXED: Void sale inserts movement_type = 'IN' (database-compatible).
- *        UI display will be enhanced in inventory.js to show "Void Restore".
+ *
+ * ENHANCED: renderSalesTable now groups rows by transaction.
+ *   • One parent summary row per transaction (txn-parent)
+ *   • One sub-row per sale_item (txn-item)
+ *   • A thin spacer row between each transaction group (txn-spacer)
+ *   • All existing functionality (exports, KPIs, charts, void/delete,
+ *     search, footer total) is fully preserved.
  */
 
 'use strict';
@@ -11,6 +14,120 @@
 let revenueChart = null;
 let paymentChart = null;
 let allSales     = [];
+
+// ── Inject grouped-transaction styles once ────────────────────────────────────
+(function injectGroupStyles() {
+    if (document.getElementById('txn-group-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'txn-group-styles';
+    style.textContent = `
+        /* ── Parent (summary) row ─────────────────────────────── */
+        #salesTable tr.txn-parent {
+            background-color: #f0f4ff;
+            border-top: 2px solid #c7d2fe;
+        }
+        #salesTable tr.txn-parent td {
+            font-weight: 600;
+            vertical-align: middle;
+            border-bottom: none;
+        }
+        #salesTable tr.txn-parent td:first-child {
+            border-left: 4px solid #667eea;
+            padding-left: 10px;
+        }
+
+        /* ── Item sub-rows ────────────────────────────────────── */
+        #salesTable tr.txn-item td {
+            background-color: #fafbff;
+            font-size: 0.92em;
+            color: #444;
+            border-top: none;
+            border-bottom: 1px dashed #e2e8f0;
+            vertical-align: middle;
+        }
+        #salesTable tr.txn-item td:first-child {
+            border-left: 4px solid #c7d2fe;
+            padding-left: 10px;
+        }
+        #salesTable tr.txn-item .item-indent {
+            color: #667eea;
+            font-weight: 600;
+            margin-right: 4px;
+        }
+
+        /* ── Spacer between transaction groups ────────────────── */
+        #salesTable tr.txn-spacer td {
+            padding: 4px 0;
+            background: transparent;
+            border: none;
+        }
+
+        /* ── Item count badge on parent row ───────────────────── */
+        .txn-item-badge {
+            display: inline-block;
+            background: #667eea;
+            color: #fff;
+            font-size: 0.72em;
+            font-weight: 600;
+            border-radius: 10px;
+            padding: 1px 7px;
+            margin-left: 6px;
+            vertical-align: middle;
+        }
+
+        /* ── Refunded parent row tint ─────────────────────────── */
+        #salesTable tr.txn-parent.txn-refunded {
+            background-color: #f5f5f5;
+            border-top-color: #adb5bd;
+        }
+        #salesTable tr.txn-parent.txn-refunded td:first-child {
+            border-left-color: #adb5bd;
+        }
+        #salesTable tr.txn-item.txn-refunded td {
+            background-color: #fafafa;
+            color: #888;
+        }
+        #salesTable tr.txn-item.txn-refunded td:first-child {
+            border-left-color: #dee2e6;
+        }
+    `;
+    document.head.appendChild(style);
+})();
+
+// ── Helper: enrich sale_items with product names (batch fetch) ────────────────
+async function enrichSalesWithProductNames(sales) {
+    const productIds = new Set();
+    for (const sale of sales) {
+        if (sale.sale_items) {
+            for (const item of sale.sale_items) {
+                if (item.product_id) productIds.add(item.product_id);
+            }
+        }
+    }
+    if (productIds.size === 0) return sales;
+
+    const { data: products, error } = await supabaseClient
+        .from('products')
+        .select('id, name')
+        .in('id', Array.from(productIds));
+
+    if (error) {
+        console.warn('Failed to fetch product names:', error);
+        return sales;
+    }
+
+    const productMap = new Map();
+    products.forEach(p => productMap.set(p.id, p.name));
+
+    for (const sale of sales) {
+        if (sale.sale_items) {
+            for (const item of sale.sale_items) {
+                item.product_name = productMap.get(item.product_id) || `Product ID: ${item.product_id}`;
+            }
+        }
+    }
+    return sales;
+}
 
 // ── Load reports ──────────────────────────────────────────────────────────────
 async function loadReports() {
@@ -33,7 +150,7 @@ async function loadReports() {
         for (const sale of (sales || [])) {
             const { data: items, error: itemsErr } = await supabaseClient
                 .from('sale_items')
-                .select('id, quantity, unit_price, total_price')
+                .select('id, product_id, quantity, unit_price, total_price')
                 .eq('sale_id', sale.id);
             if (!itemsErr && items) {
                 sale.sale_items = items;
@@ -42,7 +159,7 @@ async function loadReports() {
             }
         }
 
-        allSales = sales || [];
+        allSales = await enrichSalesWithProductNames(sales || []);
 
         const totalRevenue = allSales.reduce((s, r) => s + parseFloat(r.total_amount || 0), 0);
         const totalTax     = allSales.reduce((s, r) => s + parseFloat(r.tax_amount    || 0), 0);
@@ -53,6 +170,7 @@ async function loadReports() {
         document.getElementById('avgOrder').innerText     = formatCurrency(avgOrder);
         document.getElementById('totalTax').innerText     = formatCurrency(totalTax);
 
+        // Revenue chart
         const daily = {};
         allSales.forEach(s => {
             const d = (s.sale_date || '').split('T')[0];
@@ -82,6 +200,7 @@ async function loadReports() {
             options: { responsive: true, maintainAspectRatio: false }
         });
 
+        // Payment method chart
         const mc = {};
         allSales.forEach(s => {
             const m = (s.payment_method || 'other').toLowerCase();
@@ -110,60 +229,166 @@ async function loadReports() {
 }
 
 // ── Render transaction table ──────────────────────────────────────────────────
+//
+//  Three rendering branches depending on item count:
+//
+//  BRANCH A – 0 items (no items recorded)
+//    Single flat <tr> with all original columns, Item col shows placeholder.
+//
+//  BRANCH B – exactly 1 item
+//    Single flat <tr> using the original layout exactly:
+//    Txn# | Date | Cashier | MOP | Item name | Qty | UTP | Subtotal | Status | Actions
+//    No grouping styles, no sub-rows — indistinguishable from the original table.
+//
+//  BRANCH C – 2+ items (grouped layout)
+//    <tr class="txn-parent">  ← bold summary: Txn#/Date/Cashier/MOP/badge/—/—/Total/Status/Actions
+//    <tr class="txn-item"> ×N ← one per item: —/—/—/—/↳Name/Qty/UTP/Subtotal/—/—
+//    <tr class="txn-spacer">  ← 4 px gap between groups
+//
+//  Footer total is always summed from sale.total_amount (never per-item totals).
+//
 function renderSalesTable(salesList) {
     const tbody = document.getElementById('salesTable');
     if (!tbody) return;
 
     if (!salesList || !salesList.length) {
-        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">No sales found for this period</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">No sales found for this period</td></tr>';
+        const footerSpan = document.getElementById('footerTotal');
+        if (footerSpan) footerSpan.innerText = formatCurrency(0);
         return;
     }
 
-    tbody.innerHTML = salesList.map(s => {
-        const statusClass = s.payment_status === 'completed' ? 'success'
-                          : s.payment_status === 'refunded'  ? 'secondary'
+    let rowsHtml  = '';
+    let grandTotal = 0;
+
+    for (const sale of salesList) {
+        const items      = sale.sale_items || [];
+        const isRefunded = sale.payment_status === 'refunded';
+        const refundedClass = isRefunded ? ' txn-refunded' : '';
+
+        const statusClass = sale.payment_status === 'completed' ? 'success'
+                          : sale.payment_status === 'refunded'  ? 'secondary'
                           : 'warning';
 
         let cashierDisplay = '—';
-        if (s.cashier) {
-            const name = `${s.cashier.first_name || ''} ${s.cashier.last_name || ''}`.trim();
-            cashierDisplay = escapeHtml(name || s.cashier.email || '—');
+        if (sale.cashier) {
+            const name = `${sale.cashier.first_name || ''} ${sale.cashier.last_name || ''}`.trim();
+            cashierDisplay = escapeHtml(name || sale.cashier.email || '—');
         }
 
-        const itemCount = Array.isArray(s.sale_items) ? s.sale_items.length : '—';
-        const txn       = escapeHtml(s.transaction_number || '—');
-        const saleId    = String(s.id);
-        const canVoid   = s.payment_status !== 'refunded';
+        const txn     = escapeHtml(sale.transaction_number || '—');
+        const mop     = escapeHtml(sale.payment_method ? sale.payment_method.toUpperCase() : '—');
+        const saleId  = String(sale.id);
+        const canVoid = sale.payment_status !== 'refunded';
 
-        return `
-            <tr>
+        const saleTotal = parseFloat(sale.total_amount || 0);
+        grandTotal += saleTotal;
+
+        // Build action buttons (void + delete) — reused across branches
+        let actionsHtml = '—';
+        const hasVoid   = hasPermission('canVoidSale') && canVoid;
+        const hasDelete = hasPermission('canPermanentlyDeleteSale');
+        if (hasVoid || hasDelete) {
+            actionsHtml = `<div class="d-flex gap-1">
+                ${hasVoid ? `
+                <button class="btn btn-sm btn-outline-warning"
+                        data-action="void"
+                        data-id="${saleId}"
+                        data-label="${txn}"
+                        title="Void this sale">
+                    <i class="fas fa-undo-alt"></i>
+                </button>` : ''}
+                ${hasDelete ? `
+                <button class="btn btn-sm btn-outline-danger"
+                        data-action="delete"
+                        data-id="${saleId}"
+                        data-label="${txn}"
+                        title="Permanently delete this sale">
+                    <i class="fas fa-trash-alt"></i>
+                </button>` : ''}
+            </div>`;
+        }
+
+        // ── BRANCH A: no items ────────────────────────────────────────────────
+        if (items.length === 0) {
+            rowsHtml += `
+                <tr>
+                    <td>${txn}</td>
+                    <td>${formatDate(sale.sale_date)}</td>
+                    <td>${cashierDisplay}</td>
+                    <td>${mop}</td>
+                    <td colspan="3" class="text-muted fst-italic">(no items recorded)</td>
+                    <td class="text-end">${formatCurrency(saleTotal)}</td>
+                    <td><span class="badge bg-${statusClass}">${escapeHtml(sale.payment_status || '—')}</span></td>
+                    <td class="text-nowrap">${actionsHtml}</td>
+                </tr>`;
+            continue;
+        }
+
+        // ── BRANCH B: exactly 1 item — original flat row, no grouping ────────
+        if (items.length === 1) {
+            const item      = items[0];
+            const itemTotal = parseFloat(item.total_price || 0);
+            rowsHtml += `
+                <tr>
+                    <td>${txn}</td>
+                    <td>${formatDate(sale.sale_date)}</td>
+                    <td>${cashierDisplay}</td>
+                    <td>${mop}</td>
+                    <td>${escapeHtml(item.product_name || 'Unknown')}</td>
+                    <td class="text-center">${item.quantity || 0}</td>
+                    <td class="text-end">${formatCurrency(item.unit_price || 0)}</td>
+                    <td class="text-end">${formatCurrency(itemTotal)}</td>
+                    <td><span class="badge bg-${statusClass}">${escapeHtml(sale.payment_status || '—')}</span></td>
+                    <td class="text-nowrap">${actionsHtml}</td>
+                </tr>`;
+            continue;
+        }
+
+        // ── BRANCH C: 2+ items — grouped parent + sub-rows + spacer ──────────
+        const countBadge = `<span class="txn-item-badge">${items.length} items</span>`;
+
+        // Parent summary row
+        rowsHtml += `
+            <tr class="txn-parent${refundedClass}">
                 <td>${txn}</td>
-                <td>${formatDate(s.sale_date)}</td>
+                <td>${formatDate(sale.sale_date)}</td>
                 <td>${cashierDisplay}</td>
-                <td>${itemCount}</td>
-                <td>${formatCurrency(s.total_amount)}</td>
-                <td><span class="badge bg-${statusClass}">${escapeHtml(s.payment_status || '—')}</span></td>
-                <td class="text-nowrap">
-                    ${hasPermission('canVoidSale') && canVoid ? `
-                    <button class="btn btn-sm btn-outline-warning me-1"
-                            data-action="void"
-                            data-id="${saleId}"
-                            data-label="${txn}"
-                            title="Void this sale">
-                        <i class="fas fa-undo-alt"></i> Void
-                    </button>` : ''}
-                    ${hasPermission('canPermanentlyDeleteSale') ? `
-                    <button class="btn btn-sm btn-outline-danger"
-                            data-action="delete"
-                            data-id="${saleId}"
-                            data-label="${txn}"
-                            title="Permanently delete this sale">
-                        <i class="fas fa-trash-alt"></i>
-                    </button>` : ''}
-                </td>
-            </tr>
-        `;
-    }).join('');
+                <td>${mop}</td>
+                <td>${countBadge}</td>
+                <td></td>
+                <td></td>
+                <td class="text-end">${formatCurrency(saleTotal)}</td>
+                <td><span class="badge bg-${statusClass}">${escapeHtml(sale.payment_status || '—')}</span></td>
+                <td class="text-nowrap">${actionsHtml}</td>
+            </tr>`;
+
+        // One sub-row per item
+        for (const item of items) {
+            const itemTotal = parseFloat(item.total_price || 0);
+            rowsHtml += `
+                <tr class="txn-item${refundedClass}">
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td><span class="item-indent">↳</span>${escapeHtml(item.product_name || 'Unknown')}</td>
+                    <td class="text-center">${item.quantity || 0}</td>
+                    <td class="text-end">${formatCurrency(item.unit_price || 0)}</td>
+                    <td class="text-end">${formatCurrency(itemTotal)}</td>
+                    <td>—</td>
+                    <td>—</td>
+                </tr>`;
+        }
+
+        // Thin spacer between grouped transactions
+        rowsHtml += `<tr class="txn-spacer" aria-hidden="true"><td colspan="10"></td></tr>`;
+    }
+
+    tbody.innerHTML = rowsHtml;
+
+    const footerSpan = document.getElementById('footerTotal');
+    if (footerSpan) footerSpan.innerText = formatCurrency(grandTotal);
 }
 
 // ── Search filter ─────────────────────────────────────────────────────────────
@@ -175,12 +400,13 @@ function filterSales() {
         (s.payment_status     || '').toLowerCase().includes(q) ||
         (s.cashier
             ? `${s.cashier.first_name || ''} ${s.cashier.last_name || ''}`.toLowerCase().includes(q)
-            : false)
+            : false) ||
+        (s.sale_items || []).some(item => (item.product_name || '').toLowerCase().includes(q))
     );
     renderSalesTable(filtered);
 }
 
-// ── Void sale (restores stock) – uses 'IN' movement_type for compatibility ─────
+// ── Void sale (restores stock) ────────────────────────────────────────────────
 async function voidSale(saleId, transactionNumber) {
     if (!hasPermission('canVoidSale')) {
         showNotification('You do not have permission to void sales.', 'error');
@@ -231,11 +457,9 @@ async function voidSale(saleId, transactionNumber) {
                 .eq('id', item.product_id);
             if (stockErr) throw stockErr;
 
-            // Insert movement with database-compatible 'IN' type
-            // UI will display "Void Restore" based on reference_type (handled in inventory.js)
             await supabaseClient.from('stock_movements').insert({
                 product_id:     item.product_id,
-                movement_type:  'IN',               // ✅ kept as 'IN' for DB compatibility
+                movement_type:  'IN',
                 quantity:       item.quantity,
                 reference_type: 'SALE_VOID',
                 reference_id:   saleId,
@@ -312,8 +536,7 @@ async function permanentlyDeleteSale(saleId, transactionNumber) {
     }
 }
 
-
-
+// ── Excel export (unchanged) ──────────────────────────────────────────────────
 async function exportSalesToExcel() {
     if (!allSales.length) {
         showNotification('No data to export', 'warning');
@@ -377,107 +600,6 @@ async function exportSalesToExcel() {
     }
 }
 globalThis.exportSalesToExcel = exportSalesToExcel;
-
-// ── Product Performance (unchanged) ──────────────────────────────────────────
-async function loadProductPerformance(days) {
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - days);
-
-    try {
-        const { data: products, error: prodErr } = await supabaseClient
-            .from('products')
-            .select('id, name, sku, price, stock_quantity')
-            .eq('is_active', true)
-            .order('name', { ascending: true });
-
-        if (prodErr) {
-            console.warn('Product performance: failed to load products', prodErr);
-            return;
-        }
-        if (!products || !products.length) {
-            renderProductPerformance([], []);
-            return;
-        }
-
-        const { data: saleItems, error: siErr } = await supabaseClient
-            .from('sale_items')
-            .select('product_id, quantity')
-            .gte('created_at', startDate.toISOString());
-
-        if (siErr) {
-            console.warn('Product performance: sale_items error', siErr);
-        }
-
-        const soldMap = new Map();
-        (saleItems || []).forEach(item => {
-            const prev = soldMap.get(item.product_id) || 0;
-            soldMap.set(item.product_id, prev + (item.quantity || 0));
-        });
-
-        const enriched = products.map(p => ({
-            id:       p.id,
-            name:     p.name || 'Unknown',
-            sku:      p.sku || '—',
-            price:    p.price || 0,
-            stock:    p.stock_quantity || 0,
-            totalQty: soldMap.get(p.id) || 0
-        }));
-
-        const sorted = [...enriched].sort((a, b) => b.totalQty - a.totalQty);
-        const topSellers  = sorted.filter(p => p.totalQty > 0).slice(0, 3);
-        const leastSellers = [...enriched].sort((a, b) => a.totalQty - b.totalQty).slice(0, 5);
-
-        renderProductPerformance(topSellers, leastSellers);
-    } catch (err) {
-        console.warn('Product performance error:', err);
-    }
-}
-
-function renderProductPerformance(top, slow) {
-    const container = document.getElementById('productPerformanceContainer');
-    if (!container) return;
-
-    const rowHtml = (items, showStock) => items.map(p => `
-        <tr>
-            <td>${escapeHtml(p.name)}</td>
-            <td>${escapeHtml(p.sku)}</td>
-            <td>${p.totalQty}</td>
-            <td>${formatCurrency(p.price)}</td>
-            ${showStock ? `<td>${p.stock}</td>` : ''}
-        </tr>
-    `).join('');
-
-    const topHtml = top.length ? `
-        <div class="mb-4">
-            <h6 class="fw-bold">🏆 Top 3 Best Selling Products</h6>
-            <div class="table-responsive">
-                <table class="table table-sm table-hover">
-                    <thead><tr><th>Name</th><th>SKU</th><th>Qty Sold</th><th>Price</th></tr></thead>
-                    <tbody>${rowHtml(top, false)}</tbody>
-                </table>
-            </div>
-        </div>` : '<div class="alert alert-info">No sales data in this period.</div>';
-
-    const slowHtml = slow.length ? `
-        <div>
-            <h6 class="fw-bold">🐢 Top 5 Slow / Non-Selling Products</h6>
-            <p class="text-muted small mb-2">Includes products with zero sales in the selected period.</p>
-            <div class="table-responsive">
-                <table class="table table-sm table-hover">
-                    <thead><tr><th>Name</th><th>SKU</th><th>Qty Sold</th><th>Price</th><th>In Stock</th></tr></thead>
-                    <tbody>${rowHtml(slow, true)}</tbody>
-                </table>
-            </div>
-        </div>` : '';
-
-    container.innerHTML = `
-        <div class="card shadow-sm mt-4">
-            <div class="card-header bg-light">
-                <h5 class="mb-0"><i class="fas fa-chart-line me-2"></i>Product Performance</h5>
-            </div>
-            <div class="card-body">${topHtml}${slowHtml}</div>
-        </div>`;
-}
 
 // ── PDF export (unchanged) ────────────────────────────────────────────────────
 function exportSalesToPDF() {
@@ -553,14 +675,106 @@ function exportSalesToPDF() {
 }
 globalThis.exportSalesToPDF = exportSalesToPDF;
 
+// ── Product Performance ───────────────────────────────────────────────────────
+async function loadProductPerformance(days) {
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
 
+    try {
+        const { data: products, error: prodErr } = await supabaseClient
+            .from('products')
+            .select('id, name, sku, price, stock_quantity')
+            .eq('is_active', true)
+            .order('name', { ascending: true });
 
+        if (prodErr) {
+            console.warn('Product performance: failed to load products', prodErr);
+            return;
+        }
+        if (!products || !products.length) {
+            renderProductPerformance([], []);
+            return;
+        }
 
+        const { data: saleItems, error: siErr } = await supabaseClient
+            .from('sale_items')
+            .select('product_id, quantity')
+            .gte('created_at', startDate.toISOString());
 
+        if (siErr) {
+            console.warn('Product performance: sale_items error', siErr);
+        }
 
+        const soldMap = new Map();
+        (saleItems || []).forEach(item => {
+            const prev = soldMap.get(item.product_id) || 0;
+            soldMap.set(item.product_id, prev + (item.quantity || 0));
+        });
 
+        const enriched = products.map(p => ({
+            id:       p.id,
+            name:     p.name || 'Unknown',
+            sku:      p.sku || '—',
+            price:    p.price || 0,
+            stock:    p.stock_quantity || 0,
+            totalQty: soldMap.get(p.id) || 0
+        }));
 
+        const sorted      = [...enriched].sort((a, b) => b.totalQty - a.totalQty);
+        const topSellers  = sorted.filter(p => p.totalQty > 0).slice(0, 3);
+        const leastSellers = [...enriched].sort((a, b) => a.totalQty - b.totalQty).slice(0, 5);
 
+        renderProductPerformance(topSellers, leastSellers);
+    } catch (err) {
+        console.warn('Product performance error:', err);
+    }
+}
+
+function renderProductPerformance(top, slow) {
+    const container = document.getElementById('productPerformanceContainer');
+    if (!container) return;
+
+    const rowHtml = (items, showStock) => items.map(p => `
+        <tr>
+            <td>${escapeHtml(p.name)}</td>
+            <td>${escapeHtml(p.sku)}</td>
+            <td>${p.totalQty}</td>
+            <td>${formatCurrency(p.price)}</td>
+            ${showStock ? `<td>${p.stock}</td>` : ''}
+        </tr>
+    `).join('');
+
+    const topHtml = top.length ? `
+        <div class="mb-4">
+            <h6 class="fw-bold">🏆 Top 3 Best Selling Products</h6>
+            <div class="table-responsive">
+                <table class="table table-sm table-hover">
+                    <thead><tr><th>Name</th><th>SKU</th><th>Qty Sold</th><th>Price</th></tr></thead>
+                    <tbody>${rowHtml(top, false)}</tbody>
+                </table>
+            </div>
+        </div>` : '<div class="alert alert-info">No sales data in this period.</div>';
+
+    const slowHtml = slow.length ? `
+        <div>
+            <h6 class="fw-bold"> Top 5 Slow / Non-Selling Products</h6>
+            <p class="text-muted small mb-2">Includes products with zero sales in the selected period.</p>
+            <div class="table-responsive">
+                <table class="table table-sm table-hover">
+                    <thead><tr><th>Name</th><th>SKU</th><th>Qty Sold</th><th>Price</th><th>In Stock</th></tr></thead>
+                    <tbody>${rowHtml(slow, true)}</tbody>
+                </table>
+            </div>
+        </div>` : '';
+
+    container.innerHTML = `
+        <div class="card shadow-sm mt-4">
+            <div class="card-header bg-light">
+                <h5 class="mb-0"><i class="fas fa-chart-line me-2"></i>Product Performance</h5>
+            </div>
+            <div class="card-body">${topHtml}${slowHtml}</div>
+        </div>`;
+}
 
 // ── Event wires ───────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
@@ -578,6 +792,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('periodSelect')?.addEventListener('change', loadReports);
     document.getElementById('salesSearch')?.addEventListener('input', filterSales);
 
+    // Delegated click handler – works for dynamically rendered rows
     const salesTable = document.getElementById('salesTable');
     if (salesTable) {
         salesTable.addEventListener('click', async e => {
