@@ -78,11 +78,6 @@ async function loadSettings() {
     const nameEl = document.getElementById('userName');
     if (nameEl) nameEl.innerText = currentProfile?.first_name || currentUser?.email || 'User';
 
-    // Apply sidebar AFTER profile is guaranteed loaded
-    if (typeof applySidebarAccess === 'function') {
-        applySidebarAccess();
-    }
-
     try {
         const { data: settings, error } = await supabaseClient
             .from('settings')

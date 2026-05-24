@@ -787,7 +787,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const nameEl = document.getElementById('userName');
     if (nameEl) nameEl.innerText = currentProfile?.first_name || currentUser?.email || 'User';
-    if (typeof applySidebarAccess === 'function') applySidebarAccess();
 
     document.getElementById('periodSelect')?.addEventListener('change', loadReports);
     document.getElementById('salesSearch')?.addEventListener('input', filterSales);

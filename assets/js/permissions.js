@@ -97,12 +97,15 @@ function canAccessPage(page) {
 
 /**
  * Hide sidebar links for pages the user cannot access.
+ *
+ * This is called exclusively from requireAuth() in supabase.js, AFTER
+ * currentProfile is fully loaded. The retry loop has been intentionally
+ * removed: calling this before currentProfile is ready is now impossible
+ * by design, so polling is unnecessary and was the source of flicker.
  */
-function applySidebarAccess(attempt = 0) {
+function applySidebarAccess() {
     if (!currentProfile || !currentProfile.role) {
-        if (attempt < 20) {
-            setTimeout(() => applySidebarAccess(attempt + 1), 100);
-        }
+        // Should never happen when called from requireAuth(), but guard anyway.
         return;
     }
     const links = document.querySelectorAll('.sidebar .sidebar-item[href]');

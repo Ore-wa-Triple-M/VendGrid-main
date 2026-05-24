@@ -30,11 +30,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         nameEl.textContent = currentProfile?.first_name || currentUser?.email || 'User';
     }
 
-    // Apply sidebar access after profile is loaded
-    if (typeof applySidebarAccess === 'function') {
-        applySidebarAccess();
-    }
-
     await loadDashboard();
 });
 

@@ -1,7 +1,7 @@
 /**
  * app.js – VendGrid Global Utilities
  *
- * Phase 3 additions: email/SMS receipt helpers.
+ * Phase 3 additions: email/SMS receipt helpers (FIXED to use Supabase Edge Function)
  * Phase 4 additions: M-Pesa payment helpers.
  */
 
@@ -87,6 +87,66 @@ function showConfirmationToast(message, timeoutMs = 8000, confirmLabel = 'Delete
 }
 
 // ============================================================
+//  MOBILE SIDEBAR FUNCTIONS
+// ============================================================
+
+/**
+ * Open mobile sidebar drawer
+ */
+function openMobileSidebar() {
+    const sidebar = document.querySelector('.sidebar');
+    const overlay = document.querySelector('.sidebar-overlay');
+    if (sidebar) {
+        sidebar.classList.add('mobile-open');
+        document.body.style.overflow = 'hidden';
+    }
+    if (overlay) {
+        overlay.classList.add('active');
+    }
+}
+
+/**
+ * Close mobile sidebar drawer
+ */
+function closeMobileSidebar() {
+    const sidebar = document.querySelector('.sidebar');
+    const overlay = document.querySelector('.sidebar-overlay');
+    if (sidebar) {
+        sidebar.classList.remove('mobile-open');
+        document.body.style.overflow = '';
+    }
+    if (overlay) {
+        overlay.classList.remove('active');
+    }
+}
+
+/**
+ * Toggle mobile sidebar drawer
+ */
+function toggleMobileSidebar() {
+    const sidebar = document.querySelector('.sidebar');
+    if (sidebar && sidebar.classList.contains('mobile-open')) {
+        closeMobileSidebar();
+    } else {
+        openMobileSidebar();
+    }
+}
+
+// Close sidebar when clicking on a sidebar link (mobile only)
+function bindMobileSidebarLinks() {
+    const sidebarLinks = document.querySelectorAll('.sidebar .sidebar-item');
+    sidebarLinks.forEach(link => {
+        link.removeEventListener('click', closeMobileSidebar);
+        link.addEventListener('click', closeMobileSidebar);
+    });
+}
+
+// Expose mobile sidebar functions globally
+globalThis.openMobileSidebar = openMobileSidebar;
+globalThis.closeMobileSidebar = closeMobileSidebar;
+globalThis.toggleMobileSidebar = toggleMobileSidebar;
+
+// ============================================================
 //  ERROR HELPERS
 // ============================================================
 
@@ -94,13 +154,11 @@ function getUserFriendlyErrorMessage(error, fallback = 'An unexpected error occu
     if (!error) return fallback;
     const message = error.message || String(error);
 
-    // Network errors
     if (message.includes('Failed to fetch') || message.includes('NetworkError') || message.includes('network'))
         return 'Network error. Please check your internet connection.';
     if (message.includes('timeout') || message.includes('Timeout'))
         return 'Request timed out. Please try again.';
 
-    // Auth errors
     if (message.includes('Invalid login credentials'))
         return 'Invalid email or password.';
     if (message.includes('Email not confirmed'))
@@ -108,15 +166,9 @@ function getUserFriendlyErrorMessage(error, fallback = 'An unexpected error occu
     if (message.includes('User already registered'))
         return 'An account with this email already exists.';
 
-    // Custom application errors — pass through as-is so descriptive messages
-    // like "Sale not found or you do not have permission to void it" reach the user.
     if (message.includes('No matching record found') || message.includes('not found or you do not have permission'))
         return message;
 
-    // True Supabase / PostgREST DB errors — surface the code and hint if available
-    // so developers can diagnose schema / RLS issues without digging in the console.
-    // NOTE: we check error.code (Supabase sets this) rather than scanning message text
-    // so we no longer accidentally swallow custom error messages that contain the word "permission".
     const code = error.code || '';
     if (code === 'PGRST301' || code === '42501')
         return `Permission denied. Check Row Level Security policies. (code: ${code})`;
@@ -131,7 +183,6 @@ function getUserFriendlyErrorMessage(error, fallback = 'An unexpected error occu
     if (code && code.startsWith('PG') || code.startsWith('22') || code.startsWith('23') || code.startsWith('42'))
         return `Database error (${code}): ${error.hint || error.details || message}`.slice(0, 120);
 
-    // Fallback: pass through short messages, use fallback for long/technical ones
     const clean = message
         .replace(/https?:\/\/[^\s]+/g, '')
         .replace(/TypeError|ReferenceError|SyntaxError|Error:/g, '')
@@ -153,9 +204,6 @@ async function permanentDeleteRecord(tableName, recordId, recordName = 'this rec
     if (!confirmed) return false;
 
     try {
-        // Use .select('id') so Supabase returns the rows that were actually deleted.
-        // {count:'exact'} returns null when RLS silently blocks the operation without
-        // throwing an error, making count === 0 check unreliable.
         const { data: deletedRows, error } = await supabaseClient
             .from(tableName)
             .delete()
@@ -208,8 +256,8 @@ function escapeHtml(str) {
 
 let idleTimer   = null;
 let warningTimer = null;
-const IDLE_TIMEOUT   = 15 * 60 * 1000;  // 15 minutes
-const WARNING_BEFORE =  1 * 60 * 1000;  //  1 minute
+const IDLE_TIMEOUT   = 15 * 60 * 1000;
+const WARNING_BEFORE =  1 * 60 * 1000;
 
 function resetIdleTimer() {
     if (idleTimer)   clearTimeout(idleTimer);
@@ -264,71 +312,71 @@ async function updateGlobalBranding() {
 }
 
 // ============================================================
-//  EMAIL & SMS RECEIPTS (placeholder webhooks)
+//  EMAIL & SMS RECEIPTS (FIXED – uses Supabase Edge Function)
 // ============================================================
 
+/**
+ * Send email receipt using Supabase Edge Function (reuses your SMTP settings)
+ */
 async function sendReceiptEmail(email, receiptHtml, transactionNumber) {
-    const { data: settings } = await supabaseClient
-        .from('settings')
-        .select('value')
-        .eq('key', 'email_webhook_url')
-        .maybeSingle();
-    const webhookUrl = settings?.value || null;
-
-    if (!webhookUrl) {
-        showNotification('Email service not configured. Please contact administrator.', 'warning');
+    if (!email || !receiptHtml) {
+        showNotification('Missing email address or receipt content.', 'warning');
         return false;
     }
 
     try {
-        const response = await fetch(webhookUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
+        const { data, error } = await supabaseClient.functions.invoke('send-email-receipt', {
+            body: {
                 to: email,
                 subject: `Receipt from VendGrid - ${transactionNumber}`,
-                html: receiptHtml
-            })
+                html: receiptHtml,
+                transactionNumber: transactionNumber
+            }
         });
-        if (response.ok) {
+
+        if (error) throw error;
+        
+        if (data && data.success) {
             showNotification(`Receipt sent to ${email}`, 'success');
             return true;
         } else {
-            throw new Error('Server responded with error');
+            throw new Error(data?.error || 'Failed to send email');
         }
     } catch (err) {
-        showNotification(getUserFriendlyErrorMessage(err, 'Failed to send email receipt'), 'error');
+        console.error('Send email error:', err);
+        showNotification(getUserFriendlyErrorMessage(err, 'Failed to send email receipt. Please try again.'), 'error');
         return false;
     }
 }
 
+/**
+ * Send SMS receipt using Supabase Edge Function
+ */
 async function sendReceiptSMS(phone, shortSummary) {
-    const { data: settings } = await supabaseClient
-        .from('settings')
-        .select('value')
-        .eq('key', 'sms_webhook_url')
-        .maybeSingle();
-    const webhookUrl = settings?.value || null;
-
-    if (!webhookUrl) {
-        showNotification('SMS service not configured. Please contact administrator.', 'warning');
+    if (!phone || !shortSummary) {
+        showNotification('Missing phone number or message content.', 'warning');
         return false;
     }
 
     try {
-        const response = await fetch(webhookUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ to: phone, message: shortSummary })
+        const { data, error } = await supabaseClient.functions.invoke('send-sms-receipt', {
+            body: {
+                to: phone,
+                message: shortSummary
+            }
         });
-        if (response.ok) {
+
+        if (error) throw error;
+        
+        if (data && data.success) {
             showNotification(`SMS sent to ${phone}`, 'success');
             return true;
         } else {
-            throw new Error('Server responded with error');
+            throw new Error(data?.error || 'Failed to send SMS');
         }
     } catch (err) {
-        showNotification(getUserFriendlyErrorMessage(err, 'Failed to send SMS receipt'), 'error');
+        console.error('Send SMS error:', err);
+        showNotification(getUserFriendlyErrorMessage(err, 'Failed to send SMS receipt. Please try again.'), 'error');
         return false;
     }
 }
@@ -337,9 +385,6 @@ async function sendReceiptSMS(phone, shortSummary) {
 //  PAYMENT HELPERS (Phase 4)
 // ============================================================
 
-/**
- * Check payment status for a pending sale (used by POS polling).
- */
 async function checkPaymentStatus(saleId) {
     const { data, error } = await supabaseClient
         .from('sales')
@@ -350,9 +395,6 @@ async function checkPaymentStatus(saleId) {
     return data;
 }
 
-/**
- * Initiate M-Pesa STK push (called from POS).
- */
 async function initiateMpesaPayment(saleId, phoneNumber, amount, transactionNumber) {
     const { data, error } = await supabaseClient.functions.invoke('initiate-mpesa-payment', {
         body: { sale_id: saleId, phone_number: phoneNumber, amount, transaction_number: transactionNumber }

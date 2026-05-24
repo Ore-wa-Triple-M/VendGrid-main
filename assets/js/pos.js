@@ -1,5 +1,5 @@
 // =============================================================================
-// POS PAGE LOGIC – with M-Pesa STK Push integration & UI-based phone input
+// POS PAGE LOGIC – with M-Pesa STK Push & Phone Input Modal & Card Logos
 // =============================================================================
 
 // ---------------------------------------------------------------------------
@@ -19,42 +19,89 @@ let businessInfo = {
 let pendingPaymentSaleId = null;
 let paymentCheckInterval = null;
 let paymentPollTimeout = null;
+let scanTimer = null;
+const SCAN_PAUSE_MS = 300;
+
+// Category color palette
+const categoryColors = [
+    '#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6',
+    '#1abc9c', '#e67e22', '#e91e63', '#00bcd4', '#8bc34a',
+    '#ff9800', '#795548', '#607d8b', '#3f51b5', '#ff5722'
+];
+
+// Cache category border colors
+let categoryColorMap = new Map();
+
+// Card payment state
+let selectedCardType = null;
+
+// Bank logos mapping (Font Awesome icons + fallback)
+const bankLogos = {
+    visa:        { icon: 'fab fa-cc-visa', name: 'Visa', color: '#1a1f71' },
+    mastercard:  { icon: 'fab fa-cc-mastercard', name: 'Mastercard', color: '#eb001b' },
+    amex:        { icon: 'fab fa-cc-amex', name: 'American Express', color: '#2e77bc' },
+    discover:    { icon: 'fab fa-cc-discover', name: 'Discover', color: '#ff6000' },
+    equity:      { icon: 'fas fa-university', name: 'Equity Bank', color: '#006633' },
+    kcb:         { icon: 'fas fa-building-columns', name: 'KCB Bank', color: '#003366' },
+    cooperative: { icon: 'fas fa-handshake', name: 'Cooperative Bank', color: '#8b0000' },
+    absa:        { icon: 'fas fa-chart-line', name: 'ABSA Bank', color: '#003d5c' },
+    standard:    { icon: 'fas fa-shield', name: 'Standard Chartered', color: '#0a6e5e' },
+    other:       { icon: 'fas fa-credit-card', name: 'Other Card', color: '#6c757d' }
+};
 
 // ---------------------------------------------------------------------------
-// UI HELPER – M-Pesa Phone Input Modal (replaces browser prompt)
+// PHONE INPUT MODAL – Clean, Numeric-Only Design
 // ---------------------------------------------------------------------------
-/**
- * Shows a modal dialog to capture M-Pesa phone number.
- * @returns {Promise<string|null>} The validated phone number or null if cancelled.
- */
 function showPhoneInputModal() {
     return new Promise((resolve) => {
-        // Create modal container
         const modalId = 'mpesaPhoneModal';
-        // Remove existing modal if any
         const existingModal = document.getElementById(modalId);
         if (existingModal) existingModal.remove();
 
         const modalHtml = `
             <div class="modal fade" id="${modalId}" tabindex="-1" aria-hidden="true">
                 <div class="modal-dialog modal-dialog-centered">
-                    <div class="modal-content">
-                        <div class="modal-header">
+                    <div class="modal-content" style="border-radius: 20px;">
+                        <div class="modal-header border-0 pb-0">
                             <h5 class="modal-title">
-                                <i class="fas fa-mobile-alt me-2"></i>M-Pesa Payment
+                                <i class="fas fa-mobile-alt me-2 text-primary"></i>M-Pesa Payment
                             </h5>
                             <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                         </div>
-                        <div class="modal-body">
+                        <div class="modal-body pt-0">
+                            <div class="text-center mb-3">
+                                <div class="bg-light rounded-circle d-inline-flex p-3 mb-2">
+                                    <i class="fas fa-phone-alt fa-2x text-primary"></i>
+                                </div>
+                                <p class="text-muted small">Enter the M-Pesa registered phone number</p>
+                            </div>
                             <div class="mb-3">
-                                <label for="mpesaPhoneInput" class="form-label">Phone Number</label>
-                                <input type="tel" class="form-control" id="mpesaPhoneInput" 
-                                       placeholder="e.g., 0712345678, 0112345678, 254712345678" autocomplete="off">
-                                <div class="form-text">Enter the M-Pesa registered phone number.</div>
+                                <label class="form-label fw-semibold">Phone Number</label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-light border-end-0">
+                                        <i class="fas fa-phone text-muted"></i>
+                                    </span>
+                                    <input type="tel" 
+                                           class="form-control form-control-lg border-start-0" 
+                                           id="mpesaPhoneInput" 
+                                           placeholder="0712345678"
+                                           autocomplete="off"
+                                           inputmode="numeric"
+                                           pattern="[0-9+]*"
+                                           style="font-size: 1.1rem;">
+                                </div>
+                                <div class="form-text" id="phoneHelpText">
+                                    <small>Enter phone number as 0712345678 or +254712345678</small>
+                                </div>
+                                <div class="invalid-feedback d-none" id="phoneErrorMsg">
+                                    Please enter a valid phone number (10 digits starting with 0 or 12 digits starting with 254)
+                                </div>
                             </div>
                         </div>
-                        <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <div class="modal-footer border-0 pt-0">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                                <i class="fas fa-times me-1"></i>Cancel
+                            </button>
                             <button type="button" class="btn btn-primary" id="confirmMpesaBtn">
                                 <i class="fas fa-check me-1"></i>Pay Now
                             </button>
@@ -87,35 +134,249 @@ function showPhoneInputModal() {
             resolve(value);
         };
 
-        // Confirm button handler
         const confirmBtn = document.getElementById('confirmMpesaBtn');
         const phoneInput = document.getElementById('mpesaPhoneInput');
+        const phoneErrorMsg = document.getElementById('phoneErrorMsg');
+        const phoneHelpText = document.getElementById('phoneHelpText');
+
+        const enforceNumericOnly = (e) => {
+            let value = e.target.value;
+            let cleaned = value.replace(/[^0-9+]/g, '');
+            if (cleaned.indexOf('+') > 0) {
+                cleaned = cleaned.replace(/\+/g, '');
+            }
+            if (cleaned.startsWith('+')) {
+                cleaned = '+' + cleaned.slice(1).replace(/\+/g, '');
+            }
+            e.target.value = cleaned;
+        };
+
+        const validatePhone = () => {
+            const rawPhone = phoneInput ? phoneInput.value.trim() : '';
+            const digits = rawPhone.replace(/\D/g, '');
+            const isValid = (digits.length === 10 && digits.startsWith('0')) || 
+                           (digits.length === 12 && digits.startsWith('254'));
+            
+            if (isValid) {
+                phoneInput.classList.remove('is-invalid');
+                phoneInput.classList.add('is-valid');
+                phoneErrorMsg.classList.add('d-none');
+                if (phoneHelpText) phoneHelpText.classList.remove('text-danger');
+                return true;
+            } else {
+                phoneInput.classList.add('is-invalid');
+                phoneInput.classList.remove('is-valid');
+                phoneErrorMsg.classList.remove('d-none');
+                if (phoneHelpText) phoneHelpText.classList.add('text-danger');
+                return false;
+            }
+        };
+
+        phoneInput.addEventListener('input', (e) => {
+            enforceNumericOnly(e);
+            validatePhone();
+        });
+
+        phoneInput.addEventListener('blur', validatePhone);
 
         const validateAndConfirm = () => {
-            const rawPhone = phoneInput ? phoneInput.value.trim() : '';
-            // Remove all non-digits
-            const digits = rawPhone.replace(/\D/g, '');
-            // Validate: 10 digits starting with 0 OR 12 digits starting with 254
-            if (!((digits.length === 10 && digits.startsWith('0')) || (digits.length === 12 && digits.startsWith('254')))) {
-                showNotification('Phone number must be 10 digits starting with 0 (e.g., 0712345678) or 12 digits starting with 254 (e.g., 254712345678)', 'error');
+            if (!validatePhone()) {
+                showNotification('Please enter a valid phone number (10 digits starting with 0 or 12 digits starting with 254)', 'error');
                 return;
             }
+            const rawPhone = phoneInput.value.trim();
             resolveWith(rawPhone);
         };
 
         if (confirmBtn) confirmBtn.onclick = validateAndConfirm;
 
-        // Cancel via close button, backdrop, or ESC
         modalElement.addEventListener('hidden.bs.modal', () => {
             if (!resolved) resolveWith(null);
         });
 
-        // Show modal
         modal.show();
-        // Auto-focus the input
         setTimeout(() => {
-            if (phoneInput) phoneInput.focus();
+            if (phoneInput) {
+                phoneInput.focus();
+                phoneInput.select();
+            }
         }, 150);
+    });
+}
+
+// ---------------------------------------------------------------------------
+// CARD PAYMENT MODAL – Bank Logo Buttons
+// ---------------------------------------------------------------------------
+function showCardPaymentModal() {
+    return new Promise((resolve) => {
+        const modalId = 'cardPaymentModal';
+        const existingModal = document.getElementById(modalId);
+        if (existingModal) existingModal.remove();
+
+        const bankButtonsHtml = Object.entries(bankLogos).map(([key, bank]) => `
+            <div class="col-4 col-md-3 mb-3">
+                <button type="button" 
+                        class="card-bank-btn w-100 p-3 rounded-3 border-2 bg-white"
+                        data-card-type="${key}"
+                        style="border: 2px solid #dee2e6; transition: all 0.2s ease;">
+                    <i class="${bank.icon} fa-2x" style="color: ${bank.color};"></i>
+                    <div class="small mt-1 text-dark">${bank.name}</div>
+                </button>
+            </div>
+        `).join('');
+
+        const modalHtml = `
+            <div class="modal fade" id="${modalId}" tabindex="-1" aria-hidden="true">
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content" style="border-radius: 20px;">
+                        <div class="modal-header border-0 pb-0">
+                            <h5 class="modal-title">
+                                <i class="fas fa-credit-card me-2 text-primary"></i>Card Payment
+                            </h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body pt-0">
+                            <div class="text-center mb-3">
+                                <div class="bg-light rounded-circle d-inline-flex p-3 mb-2">
+                                    <i class="fas fa-credit-card fa-2x text-primary"></i>
+                                </div>
+                                <p class="text-muted small">Select your card type to continue</p>
+                            </div>
+                            
+                            <label class="form-label fw-semibold mb-2">Select Card Type</label>
+                            <div class="row g-2 mb-4" id="bankButtonsContainer">
+                                ${bankButtonsHtml}
+                            </div>
+                            
+                            <div id="cardDetailsSection" style="display: none;">
+                                <hr class="my-3">
+                                <label class="form-label fw-semibold">Card Details</label>
+                                <div class="mb-2">
+                                    <input type="text" class="form-control" id="cardNumber" 
+                                           placeholder="Card Number" maxlength="19"
+                                           inputmode="numeric" style="letter-spacing: 1px;">
+                                </div>
+                                <div class="row g-2">
+                                    <div class="col-6">
+                                        <input type="text" class="form-control" id="cardExpiry" 
+                                               placeholder="MM/YY" maxlength="5">
+                                    </div>
+                                    <div class="col-6">
+                                        <input type="password" class="form-control" id="cardCvv" 
+                                               placeholder="CVV" maxlength="4" inputmode="numeric">
+                                    </div>
+                                </div>
+                                <div class="form-text small text-muted mt-2">
+                                    <i class="fas fa-lock me-1"></i> Your payment info is secure and encrypted
+                                </div>
+                            </div>
+                        </div>
+                        <div class="modal-footer border-0 pt-0">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                                <i class="fas fa-times me-1"></i>Cancel
+                            </button>
+                            <button type="button" class="btn btn-primary" id="confirmCardBtn" disabled>
+                                <i class="fas fa-check me-1"></i>Pay Now
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        const modalElement = document.getElementById(modalId);
+        const modal = new bootstrap.Modal(modalElement, {
+            backdrop: 'static',
+            keyboard: true
+        });
+
+        let resolved = false;
+
+        const cleanup = () => {
+            if (modalElement) {
+                modal.hide();
+                setTimeout(() => modalElement.remove(), 300);
+            }
+        };
+
+        const resolveWith = (value) => {
+            if (resolved) return;
+            resolved = true;
+            cleanup();
+            resolve(value);
+        };
+
+        const bankBtns = document.querySelectorAll('.card-bank-btn');
+        const confirmBtn = document.getElementById('confirmCardBtn');
+        const cardDetailsSection = document.getElementById('cardDetailsSection');
+        const cardNumberInput = document.getElementById('cardNumber');
+        const cardExpiryInput = document.getElementById('cardExpiry');
+        const cardCvvInput = document.getElementById('cardCvv');
+
+        bankBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                bankBtns.forEach(b => {
+                    b.style.borderColor = '#dee2e6';
+                    b.style.backgroundColor = 'white';
+                    b.style.transform = 'scale(1)';
+                });
+                btn.style.borderColor = '#007bff';
+                btn.style.backgroundColor = '#e8f0fe';
+                btn.style.transform = 'scale(1.02)';
+                
+                selectedCardType = btn.dataset.cardType;
+                cardDetailsSection.style.display = 'block';
+                confirmBtn.disabled = false;
+            });
+        });
+
+        if (cardNumberInput) {
+            cardNumberInput.addEventListener('input', (e) => {
+                let value = e.target.value.replace(/\D/g, '');
+                if (value.length > 16) value = value.slice(0, 16);
+                let formatted = '';
+                for (let i = 0; i < value.length; i++) {
+                    if (i > 0 && i % 4 === 0) formatted += ' ';
+                    formatted += value[i];
+                }
+                e.target.value = formatted;
+            });
+        }
+
+        if (cardExpiryInput) {
+            cardExpiryInput.addEventListener('input', (e) => {
+                let value = e.target.value.replace(/\D/g, '');
+                if (value.length > 4) value = value.slice(0, 4);
+                if (value.length >= 2) {
+                    e.target.value = value.slice(0, 2) + '/' + value.slice(2);
+                } else {
+                    e.target.value = value;
+                }
+            });
+        }
+
+        if (cardCvvInput) {
+            cardCvvInput.addEventListener('input', (e) => {
+                e.target.value = e.target.value.replace(/\D/g, '').slice(0, 4);
+            });
+        }
+
+        const validateAndConfirm = () => {
+            if (!selectedCardType) {
+                showNotification('Please select a card type', 'warning');
+                return;
+            }
+            resolveWith({ cardType: selectedCardType, cardNumber: cardNumberInput?.value || null });
+        };
+
+        if (confirmBtn) confirmBtn.onclick = validateAndConfirm;
+
+        modalElement.addEventListener('hidden.bs.modal', () => {
+            if (!resolved) resolveWith(null);
+        });
+
+        modal.show();
     });
 }
 
@@ -141,7 +402,7 @@ async function loadPOSData() {
     await loadSettings();
     const { data: prodData } = await supabaseClient
         .from('products')
-        .select('*, categories(name)')
+        .select('*, categories(name, id)')
         .eq('is_active', true);
     products = prodData || [];
     const { data: catData } = await supabaseClient
@@ -149,8 +410,25 @@ async function loadPOSData() {
         .select('*')
         .eq('is_active', true);
     categories = catData || [];
+    
+    buildCategoryColorMap();
     renderCategories();
-    renderProducts(); // will show nothing initially because no category selected and search empty
+    renderProducts();
+}
+
+// ---------------------------------------------------------------------------
+// CATEGORY COLOR FUNCTIONS
+// ---------------------------------------------------------------------------
+function buildCategoryColorMap() {
+    categoryColorMap.clear();
+    categories.forEach((cat, index) => {
+        const colorIndex = index % categoryColors.length;
+        categoryColorMap.set(cat.id, categoryColors[colorIndex]);
+    });
+}
+
+function getCategoryBorderColor(categoryId) {
+    return categoryColorMap.get(categoryId) || '#e9ecef';
 }
 
 // ---------------------------------------------------------------------------
@@ -161,7 +439,13 @@ function renderCategories() {
     if (!container) return;
     container.innerHTML = '<button class="btn btn-sm btn-outline-primary" data-cat="all">All</button>';
     categories.forEach(cat => {
-        container.innerHTML += `<button class="btn btn-sm btn-outline-primary" data-cat="${cat.id}">${escapeHtml(cat.name)}</button>`;
+        const borderColor = getCategoryBorderColor(cat.id);
+        container.innerHTML += `
+            <button class="btn btn-sm btn-outline-primary" data-cat="${cat.id}" 
+                    style="border-left: 3px solid ${borderColor}; border-left-width: 3px; border-left-style: solid;">
+                ${escapeHtml(cat.name)}
+            </button>
+        `;
     });
     document.querySelectorAll('#categoryFilter button').forEach(btn => btn.classList.remove('active'));
     
@@ -170,6 +454,7 @@ function renderCategories() {
             document.querySelectorAll('#categoryFilter button').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             renderProducts();
+            focusSearchInput();
         };
     });
 }
@@ -213,54 +498,111 @@ function renderProducts() {
         return;
     }
     
-    grid.innerHTML = filtered.map(p => `
-        <div class="product-card ${p.stock_quantity <= 0 ? 'out-of-stock' : ''}"
-             onclick="addToCart(${p.id})">
-            <i class="fas fa-box fa-2x text-muted"></i>
-            <div class="product-name">${escapeHtml(p.name)}</div>
-            ${p.description ? `<div class="product-desc small text-muted mt-1">${escapeHtml(p.description)}</div>` : ''}
-            <div class="product-price">${formatCurrency(p.price)}</div>
-            <small class="text-muted">Stock: ${p.stock_quantity}</small>
-        </div>
-    `).join('');
+    grid.innerHTML = filtered.map(p => {
+        const category = categories.find(c => c.id === p.category_id);
+        const borderColor = category ? getCategoryBorderColor(category.id) : '#e9ecef';
+        const isOutOfStock = p.stock_quantity <= 0;
+        
+        return `
+            <div class="product-card ${isOutOfStock ? 'out-of-stock' : ''}"
+                 style="border-left: 4px solid ${borderColor}; border-left-style: solid;"
+                 onclick="addToCart(${p.id})">
+                <i class="fas fa-box fa-2x text-muted"></i>
+                <div class="product-name">${escapeHtml(p.name)}</div>
+                ${p.description ? `<div class="product-desc small text-muted mt-1">${escapeHtml(p.description)}</div>` : ''}
+                <div class="product-price">${formatCurrency(p.price)}</div>
+                <small class="text-muted">Stock: ${p.stock_quantity} ${p.uom || 'pcs'}</small>
+                ${category ? `<small class="d-block text-muted" style="font-size: 0.7rem;">${escapeHtml(category.name)}</small>` : ''}
+            </div>
+        `;
+    }).join('');
 }
 
 // ---------------------------------------------------------------------------
 // CART
 // ---------------------------------------------------------------------------
-function addToCart(productId) {
+function addToCart(productId, quantity = 1) {
     const product = products.find(p => p.id === productId);
-    if (!product || product.stock_quantity <= 0) return;
+    if (!product) {
+        showNotification('Product not found', 'error');
+        return false;
+    }
+    
+    if (product.stock_quantity <= 0) {
+        showNotification('Out of stock', 'warning');
+        return false;
+    }
+    
     const existing = cart.find(i => i.id === productId);
+    let newQuantity = quantity;
+    
     if (existing) {
-        if (existing.quantity >= product.stock_quantity) {
-            showNotification('Not enough stock', 'warning');
-            return;
+        newQuantity = existing.quantity + quantity;
+        if (newQuantity > product.stock_quantity) {
+            showNotification(`Not enough stock. Available: ${product.stock_quantity}`, 'warning');
+            return false;
         }
-        existing.quantity++;
+        existing.quantity = newQuantity;
     } else {
+        if (quantity > product.stock_quantity) {
+            showNotification(`Not enough stock. Available: ${product.stock_quantity}`, 'warning');
+            return false;
+        }
         cart.push({
             id:          product.id,
             name:        product.name,
             description: product.description || '',
             price:       parseFloat(product.price),
-            quantity:    1,
+            quantity:    quantity,
+            category_id: product.category_id,
+            uom:         product.uom || 'pcs'
         });
     }
+    
     renderCart();
+    focusSearchInput();
+    return true;
 }
 
 function updateQuantity(id, delta) {
     const item = cart.find(i => i.id === id);
     if (!item) return;
     const product = products.find(p => p.id === id);
-    const newQty  = item.quantity + delta;
+    const newQty = item.quantity + delta;
+    
     if (delta > 0 && newQty > product.stock_quantity) {
-        showNotification('Not enough stock', 'warning');
+        showNotification(`Not enough stock. Available: ${product.stock_quantity}`, 'warning');
         return;
     }
-    item.quantity = newQty;
-    if (item.quantity <= 0) cart = cart.filter(i => i.id !== id);
+    
+    if (newQty <= 0) {
+        cart = cart.filter(i => i.id !== id);
+    } else {
+        item.quantity = newQty;
+    }
+    
+    renderCart();
+}
+
+function setQuantity(id, newQuantity) {
+    const item = cart.find(i => i.id === id);
+    if (!item) return;
+    
+    const product = products.find(p => p.id === id);
+    let qty = parseInt(newQuantity);
+    
+    if (isNaN(qty) || qty <= 0) {
+        cart = cart.filter(i => i.id !== id);
+        renderCart();
+        return;
+    }
+    
+    if (qty > product.stock_quantity) {
+        showNotification(`Not enough stock. Available: ${product.stock_quantity}`, 'warning');
+        qty = product.stock_quantity;
+    }
+    
+    item.quantity = qty;
     renderCart();
 }
 
@@ -285,6 +627,7 @@ function clearCart() {
         clearTimeout(paymentPollTimeout);
         paymentPollTimeout = null;
     }
+    focusSearchInput();
 }
 
 function renderCart() {
@@ -301,51 +644,46 @@ function renderCart() {
         return;
     }
     
-    // Match the grid template columns from the header row:
-    // 3fr 1fr 1fr 1fr auto
-   const gridStyle = "display: grid; grid-template-columns: 3fr 1fr 1fr 1fr 80px; gap: 15px; align-items: center;";
-   container.innerHTML = cart.map(item => {
-    const itemTotal = item.price * item.quantity;
-    return `
-        <div class="p-3 border-bottom" style="${gridStyle}">
-            <!-- 1. Products Column (3fr) -->
-            <div class="d-flex flex-column justify-content-center">
-                <div class="fw-semibold text-dark">${escapeHtml(item.name)}</div>
-                ${item.description ? `<div class="small text-muted">${escapeHtml(item.description)}</div>` : ''}
-            </div>
-            
-            <!-- 2. Unit Price Column (1fr) -->
-            <div class="ps-3 border-start d-flex align-items-center h-100">
-                <span>${formatCurrency(item.price)}</span>
-            </div>
-            
-            <!-- 3. Quantity Column (1fr) -->
-            <div class="ps-3 border-start d-flex align-items-center h-100">
-                <div class="d-flex align-items-center gap-2">
-                    <button class="btn btn-sm btn-outline-secondary" onclick="updateQuantity(${item.id}, -1)">
-                        <i class="fas fa-minus"></i>
-                    </button>
-                    <span class="fw-semibold px-1">${item.quantity}</span>
-                    <button class="btn btn-sm btn-outline-secondary" onclick="updateQuantity(${item.id}, 1)">
-                        <i class="fas fa-plus"></i>
+    const gridStyle = "display: grid; grid-template-columns: 3fr 1fr 1fr 1fr 80px; gap: 15px; align-items: center;";
+    container.innerHTML = cart.map(item => {
+        const itemTotal = item.price * item.quantity;
+        const category = categories.find(c => c.id === item.category_id);
+        const borderColor = category ? getCategoryBorderColor(category.id) : '#e9ecef';
+        
+        return `
+            <div class="p-3 border-bottom" style="${gridStyle} border-left: 3px solid ${borderColor} !important;">
+                <div class="d-flex flex-column justify-content-center">
+                    <div class="fw-semibold text-dark">${escapeHtml(item.name)}</div>
+                    ${item.description ? `<div class="small text-muted">${escapeHtml(item.description)}</div>` : ''}
+                    ${category ? `<small class="text-muted" style="font-size: 0.7rem;">${escapeHtml(category.name)}</small>` : ''}
+                </div>
+                <div class="ps-3 border-start d-flex align-items-center h-100">
+                    <span>${formatCurrency(item.price)}</span>
+                </div>
+                <div class="ps-3 border-start d-flex align-items-center h-100">
+                    <div class="d-flex align-items-center gap-2">
+                        <button class="btn btn-sm btn-outline-secondary" onclick="updateQuantity(${item.id}, -1)">
+                            <i class="fas fa-minus"></i>
+                        </button>
+                        <input type="number" class="form-control form-control-sm text-center" 
+                               style="width: 70px;" value="${item.quantity}" min="1"
+                               onchange="setQuantity(${item.id}, this.value)">
+                        <button class="btn btn-sm btn-outline-secondary" onclick="updateQuantity(${item.id}, 1)">
+                            <i class="fas fa-plus"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="ps-3 border-start fw-semibold d-flex align-items-center h-100">
+                    <span>${formatCurrency(itemTotal)}</span>
+                </div>
+                <div class="ps-3 border-start d-flex align-items-center justify-content-center h-100">
+                    <button class="btn btn-sm btn-outline-danger" onclick="removeCartItem(${item.id})">
+                        <i class="fas fa-trash"></i>
                     </button>
                 </div>
             </div>
-            
-            <!-- 4. Total Column (1fr) -->
-            <div class="ps-3 border-start fw-semibold d-flex align-items-center h-100">
-                <span>${formatCurrency(itemTotal)}</span>
-            </div>
-            
-            <!-- 5. Actions Column (80px) -->
-            <div class="ps-3 border-start d-flex align-items-center justify-content-center h-100">
-                <button class="btn btn-sm btn-outline-danger" onclick="removeCartItem(${item.id})">
-                    <i class="fas fa-trash"></i>
-                </button>
-            </div>
-        </div>
-    `;
-}).join('');
+        `;
+    }).join('');
     
     updateTotals();
 }
@@ -393,7 +731,67 @@ function updateChange() {
 }
 
 // ---------------------------------------------------------------------------
-// COMPLETE SALE (with M-PESA integration – no browser prompts)
+// SEARCH FOCUS & BARCODE SCANNING
+// ---------------------------------------------------------------------------
+function focusSearchInput() {
+    const searchInput = document.getElementById('searchInput');
+    if (searchInput) {
+        searchInput.focus();
+    }
+}
+
+function processBarcodeInput(barcode) {
+    if (!barcode || barcode.trim() === '') return false;
+    
+    const product = products.find(p => 
+        p.barcode === barcode || 
+        p.sku === barcode
+    );
+    
+    if (product) {
+        addToCart(product.id, 1);
+        showNotification(`${product.name} added to cart`, 'success');
+        return true;
+    }
+    return false;
+}
+
+function setupBarcodeScanner() {
+    const searchInput = document.getElementById('searchInput');
+    if (!searchInput) return;
+
+    searchInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            const barcode = searchInput.value.trim();
+            if (barcode !== '') {
+                const product = products.find(p => 
+                    p.barcode === barcode || 
+                    p.sku === barcode
+                );
+                
+                if (product) {
+                    addToCart(product.id, 1);
+                    showNotification(`${product.name} added to cart`, 'success');
+                    searchInput.value = '';
+                } else if (barcode.length > 3) {
+                    const partialMatch = products.find(p => 
+                        p.name.toLowerCase().includes(barcode.toLowerCase())
+                    );
+                    if (partialMatch) {
+                        showNotification(`Product not found by barcode/SKU. Did you mean "${partialMatch.name}"?`, 'warning');
+                    } else {
+                        showNotification(`Product with barcode/SKU "${barcode}" not found`, 'warning');
+                    }
+                }
+                focusSearchInput();
+            }
+            e.preventDefault();
+        }
+    });
+}
+
+// ---------------------------------------------------------------------------
+// COMPLETE SALE
 // ---------------------------------------------------------------------------
 async function completeSale() {
     if (!cart.length) {
@@ -402,22 +800,15 @@ async function completeSale() {
     }
     const method = document.getElementById('paymentMethod').value;
 
-    // Parse total
     const totalText = document.getElementById('total').innerText;
     const total = parseFloat(totalText.replace(/[^0-9.]+/g, '')) || 0;
     const discount = parseFloat(document.getElementById('discount').value) || 0;
     const items = cart.map(i => ({ product_id: i.id, quantity: i.quantity }));
 
-    // ------------------- M-PESA (Mobile) -------------------
     if (method === 'mobile') {
-        // Show UI phone input modal instead of browser prompt
         const phone = await showPhoneInputModal();
-        if (!phone) {
-            // User cancelled
-            return;
-        }
+        if (!phone) return;
 
-        // Create pending sale (no inventory deduction)
         const { data: saleData, error: saleError } = await supabaseClient.rpc('process_sale_pending', {
             p_cashier_id: currentUser.id,
             p_items: items,
@@ -433,7 +824,6 @@ async function completeSale() {
         const saleId = saleData.id;
         const transactionNumber = saleData.transaction_number;
 
-        // Initiate STK push
         const { data: mpesaRes, error: mpesaError } = await supabaseClient.functions.invoke('initiate-mpesa-payment', {
             body: {
                 sale_id: saleId,
@@ -450,14 +840,12 @@ async function completeSale() {
 
         showNotification('STK push sent. Please check your phone and enter PIN.', 'info');
 
-        // Clear any existing timers
         if (paymentCheckInterval) clearInterval(paymentCheckInterval);
         if (paymentPollTimeout) clearTimeout(paymentPollTimeout);
 
-        // Poll for payment status with timeout (60 seconds)
         pendingPaymentSaleId = saleId;
         const pollStartTime = Date.now();
-        const MAX_POLL_TIME = 60000; // 60 seconds
+        const MAX_POLL_TIME = 60000;
 
         paymentCheckInterval = setInterval(async () => {
             const { data: saleCheck, error: checkError } = await supabaseClient
@@ -479,6 +867,7 @@ async function completeSale() {
                 generateReceipt(transactionNumber, receiptSnapshot, 0, saleCheck.payment_reference);
                 clearCart();
                 await loadPOSData();
+                focusSearchInput();
             } else if (saleCheck.payment_status === 'failed') {
                 clearInterval(paymentCheckInterval);
                 clearTimeout(paymentPollTimeout);
@@ -486,14 +875,15 @@ async function completeSale() {
                 paymentPollTimeout = null;
                 pendingPaymentSaleId = null;
                 showNotification('Payment failed. Please try again.', 'error');
+                focusSearchInput();
             } else if (Date.now() - pollStartTime >= MAX_POLL_TIME) {
-                // Timeout
                 clearInterval(paymentCheckInterval);
                 clearTimeout(paymentPollTimeout);
                 paymentCheckInterval = null;
                 paymentPollTimeout = null;
                 pendingPaymentSaleId = null;
                 showNotification('Payment confirmation timed out. Please check transaction status in reports.', 'warning');
+                focusSearchInput();
             }
         }, 3000);
 
@@ -504,13 +894,43 @@ async function completeSale() {
                 paymentPollTimeout = null;
                 pendingPaymentSaleId = null;
                 showNotification('Payment confirmation timed out. Please check transaction status in reports.', 'warning');
+                focusSearchInput();
             }
         }, MAX_POLL_TIME);
 
         return;
     }
 
-    // ------------------- CASH -------------------
+    if (method === 'card') {
+        const cardDetails = await showCardPaymentModal();
+        if (!cardDetails) return;
+
+        showNotification(`Processing ${cardDetails.cardType.toUpperCase()} card payment...`, 'info');
+        
+        setTimeout(async () => {
+            const { data, error } = await supabaseClient.rpc('process_sale', {
+                p_cashier_id: currentUser.id,
+                p_items: items,
+                p_discount: discount,
+                p_payment_method: 'card',
+            });
+
+            if (error) {
+                showNotification('Sale failed: ' + getUserFriendlyErrorMessage(error), 'error');
+                return;
+            }
+
+            showNotification(`Card payment successful! Transaction: ${data.transaction_number}`, 'success');
+            const receiptSnapshot = { items: cart.map(i => ({ ...i })), discount, tendered: 0 };
+            generateReceipt(data.transaction_number, receiptSnapshot, 0, `${cardDetails.cardType.toUpperCase()}-${Date.now()}`);
+            clearCart();
+            await loadPOSData();
+            focusSearchInput();
+        }, 1500);
+        
+        return;
+    }
+
     const tendered = parseFloat(document.getElementById('amountTendered')?.value) || 0;
     if (method === 'cash' && tendered < total) {
         showNotification(`Insufficient payment. Please enter at least ${formatCurrency(total)}.`, 'error');
@@ -534,10 +954,11 @@ async function completeSale() {
     generateReceipt(data.transaction_number, receiptSnapshot, tendered);
     clearCart();
     await loadPOSData();
+    focusSearchInput();
 }
 
 // ---------------------------------------------------------------------------
-// RECEIPT GENERATION (with payment reference)
+// RECEIPT GENERATION
 // ---------------------------------------------------------------------------
 function generateReceipt(transactionNumber = null, snapshot = null, amountTendered = null, paymentRef = null) {
     const receiptItems = (snapshot && snapshot.items && snapshot.items.length) ? snapshot.items : cart;
@@ -568,7 +989,7 @@ function generateReceipt(transactionNumber = null, snapshot = null, amountTender
                 ${escapeHtml(item.name)}
                 ${item.description ? `<br><small class="text-muted">${escapeHtml(item.description)}</small>` : ''}
             </td>
-            <td class="text-center">${item.quantity}</td>
+            <td class="text-center">${item.quantity} ${item.uom || 'pcs'}</td>
             <td class="text-end">${formatCurrency(item.price)}</td>
             <td class="text-end pe-0">${formatCurrency(item.price * item.quantity)}</td>
         </tr>
@@ -668,35 +1089,66 @@ function generateReceipt(transactionNumber = null, snapshot = null, amountTender
 }
 
 // ---------------------------------------------------------------------------
-// EMAIL / SMS FROM MODAL (using global transaction number)
+// EMAIL / SMS FROM MODAL (FIXED)
 // ---------------------------------------------------------------------------
+
 async function sendReceiptEmailFromModal() {
-    const transactionNumber = globalThis._lastTransactionNumber;
+    let transactionNumber = globalThis._lastTransactionNumber;
+    
     if (!transactionNumber) {
-        showNotification('No transaction number available', 'error');
+        const receiptContent = document.getElementById('receiptContent');
+        if (receiptContent) {
+            const txnMatch = receiptContent.innerHTML.match(/Transaction #:\s*<small>([^<]+)<\/small>/);
+            if (txnMatch) transactionNumber = txnMatch[1];
+        }
+    }
+    
+    if (!transactionNumber) {
+        showNotification('No transaction number found. Please complete a sale first.', 'error');
         return;
     }
+    
     const email = document.getElementById('receiptEmail')?.value.trim();
     if (!email) {
         showNotification('Please enter an email address', 'warning');
         return;
     }
+    
     const receiptHtml = globalThis._lastReceiptHTML || document.getElementById('receiptContent')?.innerHTML || '';
+    
+    if (!receiptHtml) {
+        showNotification('No receipt content found. Please generate receipt first.', 'error');
+        return;
+    }
+    
     await globalThis.sendReceiptEmail(email, receiptHtml, transactionNumber);
 }
 
 async function sendReceiptSMSFromModal() {
-    const transactionNumber = globalThis._lastTransactionNumber;
+    let transactionNumber = globalThis._lastTransactionNumber;
+    
     if (!transactionNumber) {
-        showNotification('No transaction number available', 'error');
+        const receiptContent = document.getElementById('receiptContent');
+        if (receiptContent) {
+            const txnMatch = receiptContent.innerHTML.match(/Transaction #:\s*<small>([^<]+)<\/small>/);
+            if (txnMatch) transactionNumber = txnMatch[1];
+        }
+    }
+    
+    if (!transactionNumber) {
+        showNotification('No transaction number found. Please complete a sale first.', 'error');
         return;
     }
+    
     const phone = document.getElementById('receiptPhone')?.value.trim();
     if (!phone) {
         showNotification('Please enter a phone number', 'warning');
         return;
     }
-    const total = document.getElementById('total')?.innerText || '';
+    
+    const totalElement = document.getElementById('total');
+    const total = totalElement?.innerText || 'KES 0.00';
+    
     const shortSummary = `VendGrid receipt #${transactionNumber} | Total ${total}`;
     await globalThis.sendReceiptSMS(phone, shortSummary);
 }
@@ -746,9 +1198,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadPOSData();
     toggleCashSection();
 
-    if (typeof applySidebarAccess === 'function') {
-        applySidebarAccess();
-    }
+    setTimeout(() => {
+        focusSearchInput();
+    }, 500);
+
+    setupBarcodeScanner();
 });
 
 // Expose functions globally
@@ -756,8 +1210,10 @@ globalThis.sendReceiptEmailFromModal = sendReceiptEmailFromModal;
 globalThis.sendReceiptSMSFromModal   = sendReceiptSMSFromModal;
 globalThis.addToCart = addToCart;
 globalThis.updateQuantity = updateQuantity;
+globalThis.setQuantity = setQuantity;
 globalThis.removeCartItem = removeCartItem;
 globalThis.clearCart = clearCart;
 globalThis.completeSale = completeSale;
 globalThis.generateReceipt = generateReceipt;
 globalThis.printReceipt = printReceipt;
+globalThis.focusSearchInput = focusSearchInput;

@@ -9,13 +9,15 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="assets/css/shared.css">
     <link rel="stylesheet" href="assets/css/dashboard.css">
-     <link rel="stylesheet" href="assets/css/light-theme.css">
-
+    <link rel="stylesheet" href="assets/css/light-theme.css">
 </head>
-<body class="dashboard-page">
-    <!-- Navbar -->
+<body class="dashboard-page auth-loading">
+    <!-- Navbar with mobile menu button -->
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary fixed-top">
         <div class="container-fluid">
+            <button class="mobile-menu-toggle" id="mobileMenuToggle" onclick="toggleMobileSidebar()">
+                <i class="fas fa-bars"></i>
+            </button>
             <a class="navbar-brand fw-bold" href="dashboard.html"><i class="fas fa-cash-register me-2"></i>VendGrid</a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
@@ -35,6 +37,9 @@
         </div>
     </nav>
 
+    <!-- Sidebar Overlay (closes sidebar when clicked) -->
+    <div class="sidebar-overlay" onclick="closeMobileSidebar()"></div>
+
     <!-- Sidebar -->
     <div class="sidebar">
         <a href="dashboard.html" class="sidebar-item active" data-tooltip="Dashboard">
@@ -49,7 +54,7 @@
         <a href="reports.html" class="sidebar-item" data-tooltip="Reports">
             <i class="fas fa-chart-bar"></i><span>Reports</span>
         </a>
-        <a href="users.html" class="sidebar-item " data-tooltip="Users">
+        <a href="users.html" class="sidebar-item" data-tooltip="Users">
             <i class="fas fa-users"></i><span>Users</span>
         </a>
         <a href="settings.html" class="sidebar-item" data-tooltip="Settings">
@@ -76,33 +81,86 @@
                         <div class="widget-header">
                             <div class="widget-icon">
                                 <i class="fas fa-dollar-sign"></i>
-                            </div><div class="widget-title">
+                            </div>
+                            <div class="widget-title">
                                 <h3>Today's Sales</h3>
                                 <p class="text-muted">Total revenue</p>
-                            </div></div>
-                        <div class="widget-content"><div class="metric-value"><span class="currency"></span><span class="amount" id="todaySales">0</span></div><div class="metric-change" id="salesChange"></div></div>
-                        <div class="widget-footer"><a href="reports.html" class="widget-link">View Details</a></div>
+                            </div>
+                        </div>
+                        <div class="widget-content">
+                            <div class="metric-value">
+                                <span class="currency"></span>
+                                <span class="amount" id="todaySales">0</span>
+                            </div>
+                            <div class="metric-change" id="salesChange"></div>
+                        </div>
+                        <div class="widget-footer">
+                            <a href="reports.html" class="widget-link">View Details</a>
+                        </div>
                     </div> 
                 </div>
                 <div class="col-lg-3 col-md-6">
                     <div class="dashboard-widget transactions-widget">
-                        <div class="widget-header"><div class="widget-icon"><i class="fas fa-shopping-cart"></i></div><div class="widget-title"><h3>Transactions</h3><p class="text-muted">Total orders</p></div></div>
-                        <div class="widget-content"><div class="metric-value"><span class="amount" id="todayTransactions">0</span></div><div class="metric-change" id="transactionsChange"></div></div>
-                        <div class="widget-footer"><a href="pos.html" class="widget-link">New Sale</a></div>
+                        <div class="widget-header">
+                            <div class="widget-icon">
+                                <i class="fas fa-shopping-cart"></i>
+                            </div>
+                            <div class="widget-title">
+                                <h3>Transactions</h3>
+                                <p class="text-muted">Total orders</p>
+                            </div>
+                        </div>
+                        <div class="widget-content">
+                            <div class="metric-value">
+                                <span class="amount" id="todayTransactions">0</span>
+                            </div>
+                            <div class="metric-change" id="transactionsChange"></div>
+                        </div>
+                        <div class="widget-footer">
+                            <a href="pos.html" class="widget-link">New Sale</a>
+                        </div>
                     </div>
                 </div>
                 <div class="col-lg-3 col-md-6">
                     <div class="dashboard-widget inventory-widget">
-                        <div class="widget-header"><div class="widget-icon"><i class="fas fa-boxes"></i></div><div class="widget-title"><h3>Products</h3><p class="text-muted">Total items</p></div></div>
-                        <div class="widget-content"><div class="metric-value"><span class="amount" id="totalProducts">0</span></div></div>
-                        <div class="widget-footer"><a href="inventory.html" class="widget-link">Manage</a></div>
+                        <div class="widget-header">
+                            <div class="widget-icon">
+                                <i class="fas fa-boxes"></i>
+                            </div>
+                            <div class="widget-title">
+                                <h3>Products</h3>
+                                <p class="text-muted">Total items</p>
+                            </div>
+                        </div>
+                        <div class="widget-content">
+                            <div class="metric-value">
+                                <span class="amount" id="totalProducts">0</span>
+                            </div>
+                        </div>
+                        <div class="widget-footer">
+                            <a href="inventory.html" class="widget-link">Manage</a>
+                        </div>
                     </div>
                 </div>
                 <div class="col-lg-3 col-md-6">
                     <div class="dashboard-widget low-stock-widget">
-                        <div class="widget-header"><div class="widget-icon"><i class="fas fa-exclamation-triangle"></i></div><div class="widget-title"><h3>Low Stock</h3><p class="text-muted">Items to reorder</p></div></div>
-                        <div class="widget-content"><div class="metric-value"><span class="amount" id="lowStockItems">0</span></div></div>
-                        <div class="widget-footer"><a href="inventory.html?filter=low-stock" class="widget-link">View Items</a></div>
+                        <div class="widget-header">
+                            <div class="widget-icon">
+                                <i class="fas fa-exclamation-triangle"></i>
+                            </div>
+                            <div class="widget-title">
+                                <h3>Low Stock</h3>
+                                <p class="text-muted">Items to reorder</p>
+                            </div>
+                        </div>
+                        <div class="widget-content">
+                            <div class="metric-value">
+                                <span class="amount" id="lowStockItems">0</span>
+                            </div>
+                        </div>
+                        <div class="widget-footer">
+                            <a href="inventory.html?filter=low-stock" class="widget-link">View Items</a>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -120,9 +178,18 @@
                         <div class="widget-header"><h3>Quick Actions</h3></div>
                         <div class="widget-content">
                             <div class="quick-actions">
-                                <a href="pos.html" class="quick-action"><div class="action-icon"><i class="fas fa-cash-register"></i></div><div class="action-content"><h4>New Sale</h4><p>Start a new transaction</p></div></a>
-                                <a href="inventory.html?action=add" class="quick-action"><div class="action-icon"><i class="fas fa-plus"></i></div><div class="action-content"><h4>Add Product</h4><p>Add new inventory item</p></div></a>
-                                <a href="reports.html" class="quick-action"><div class="action-icon"><i class="fas fa-chart-bar"></i></div><div class="action-content"><h4>View Reports</h4><p>Generate analytics</p></div></a>
+                                <a href="pos.html" class="quick-action">
+                                    <div class="action-icon"><i class="fas fa-cash-register"></i></div>
+                                    <div class="action-content"><h4>New Sale</h4><p>Start a new transaction</p></div>
+                                </a>
+                                <a href="inventory.html?action=add" class="quick-action">
+                                    <div class="action-icon"><i class="fas fa-plus"></i></div>
+                                    <div class="action-content"><h4>Add Product</h4><p>Add new inventory item</p></div>
+                                </a>
+                                <a href="reports.html" class="quick-action">
+                                    <div class="action-icon"><i class="fas fa-chart-bar"></i></div>
+                                    <div class="action-content"><h4>View Reports</h4><p>Generate analytics</p></div>
+                                </a>
                             </div>
                         </div>
                     </div>
@@ -137,7 +204,14 @@
                         <div class="widget-content">
                             <div class="table-responsive">
                                 <table class="table table-hover">
-                                    <thead><tr><th>Transaction #</th><th>Amount</th><th>Method</th><th>Date</th></tr></thead>
+                                    <thead>
+                                        <tr>
+                                            <th>Transaction #</th>
+                                            <th>Amount</th>
+                                            <th>Method</th>
+                                            <th>Date</th>
+                                        </tr>
+                                    </thead>
                                     <tbody id="recentTransactions"></tbody>
                                 </table>
                             </div>
@@ -156,5 +230,14 @@
     <script src="assets/js/dashboard.js"></script>
     <script src="assets/js/sidebar.js"></script>
     <script src="assets/js/theme-manager.js"></script>
+    
+    <script>
+        // Bind sidebar links to close on mobile when clicked
+        document.addEventListener('DOMContentLoaded', function() {
+            if (typeof bindMobileSidebarLinks === 'function') {
+                bindMobileSidebarLinks();
+            }
+        });
+    </script>
 </body>
 </html>

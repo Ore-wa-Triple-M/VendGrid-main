@@ -9,11 +9,14 @@
     <link rel="stylesheet" href="assets/css/shared.css">
     <link rel="stylesheet" href="assets/css/light-theme.css">
     <link rel="stylesheet" href="assets/css/pos.css">
-    <!-- dark-theme.css will be loaded by theme-manager.js -->
 </head>
-<body>
+<body class="auth-loading">
+    <!-- Navbar with mobile menu button -->
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary fixed-top">
         <div class="container-fluid">
+            <button class="mobile-menu-toggle" id="mobileMenuToggle" onclick="toggleMobileSidebar()">
+                <i class="fas fa-bars"></i>
+            </button>
             <a class="navbar-brand" href="dashboard.html"><i class="fas fa-cash-register me-2"></i>VendGrid</a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
@@ -33,6 +36,9 @@
         </div>
     </nav>
 
+    <!-- Sidebar Overlay (closes sidebar when clicked) -->
+    <div class="sidebar-overlay" onclick="closeMobileSidebar()"></div>
+
     <div class="sidebar">
         <a href="dashboard.html" class="sidebar-item" data-tooltip="Dashboard"><i class="fas fa-tachometer-alt"></i><span>Dashboard</span></a>
         <a href="pos.html" class="sidebar-item active" data-tooltip="POS Terminal"><i class="fas fa-cash-register"></i><span>POS Terminal</span></a>
@@ -48,37 +54,33 @@
             <div id="categoryFilter" class="mb-3 d-flex gap-2 flex-wrap"></div>
             <div id="productGrid" class="product-grid"></div>
         </div>
-   <div class="cart-panel">
-    <div class="cart-panel-1">
-        <!-- Panel Header -->
-        <div class="p-3 bg-light border-bottom"><h5 class="mb-0"><i class="fas fa-shopping-cart me-2"></i>Cart</h5></div>
-         <!-- Table Header Row with Vertical Rules -->
-       <!-- Changed auto to 80px and added text-center to keep the action column neat -->
-<div class="p-3 bg-light border-bottom" style="display: grid; grid-template-columns: 3fr 1fr 1fr 1fr 80px; gap: 15px; align-items: center;">
-    <h6 class="mb-0 d-flex align-items-center"><i class="fas fa-shopping-bag me-1"></i>Products</h6> 
-    <h6 class="mb-0 ps-3 border-start d-flex align-items-center"><i class="fas fa-tag me-1"></i>Unit Price</h6>
-    <h6 class="mb-0 ps-3 border-start d-flex align-items-center"><i class="fas fa-box me-1"></i>Quantity</h6>
-    <h6 class="mb-0 ps-3 border-start d-flex align-items-center"><i class="fas fa-calculator me-1"></i>Subtotal</h6>
-    <h6 class="mb-0 ps-3 border-start d-flex align-items-center justify-content-center"><i class="fas fa-cogs me-1"></i>Actions</h6> 
-</div>
-         <div id="cartItems" class="flex-grow-1 overflow-auto" style="max-height: 470px;"></div>
-    </div>
-          
+        <div class="cart-panel">
+            <div class="cart-panel-1">
+                <div class="p-3 bg-light border-bottom"><h5 class="mb-0"><i class="fas fa-shopping-cart me-2"></i>Cart</h5></div>
+                <div class="p-3 bg-light border-bottom" style="display: grid; grid-template-columns: 3fr 1fr 1fr 1fr 80px; gap: 15px; align-items: center;">
+                    <h6 class="mb-0 d-flex align-items-center"><i class="fas fa-shopping-bag me-1"></i>Products</h6> 
+                    <h6 class="mb-0 ps-3 border-start d-flex align-items-center"><i class="fas fa-tag me-1"></i>Unit Price</h6>
+                    <h6 class="mb-0 ps-3 border-start d-flex align-items-center"><i class="fas fa-box me-1"></i>Quantity</h6>
+                    <h6 class="mb-0 ps-3 border-start d-flex align-items-center"><i class="fas fa-calculator me-1"></i>Subtotal</h6>
+                    <h6 class="mb-0 ps-3 border-start d-flex align-items-center justify-content-center"><i class="fas fa-cogs me-1"></i>Actions</h6> 
+                </div>
+                <div id="cartItems" class="flex-grow-1 overflow-auto" style="max-height: 470px;"></div>
+            </div>
             <div class="cart-summary">
-              <div class="cart-summary-1"> 
+                <div class="cart-summary-1"> 
                     <div class="summary-row"><span>Subtotal:</span><span id="subtotal">KES 0.00</span></div>
                     <div class="summary-row"><span>VAT (<span id="vatRateDisplay">16</span>%):</span><span id="tax">KES 0.00</span></div>
                     <div class="summary-row"><span>Discount:</span><input type="number" id="discount" class="form-control form-control-sm" style="width: 100px;" value="0" step="0.01"></div>
-                   <div class="summary-row total-row"><span>Total:</span><span id="total">KES 0.00</span></div>
+                    <div class="summary-row total-row"><span>Total:</span><span id="total">KES 0.00</span></div>
                     <div id="cashChangeSection" style="display: none;">
                         <div class="summary-row"><span>Amount Tendered (KES):</span><input type="number" id="amountTendered" class="form-control form-control-sm" style="width: 120px;" value="0" step="0.01"></div>
                         <div class="summary-row"><span>Change:</span><span id="changeAmount">KES 0.00</span></div>
                     </div>
-                     <select id="paymentMethod" class="form-select mt-2">
-                    <option value="cash">Cash</option>
-                    <option value="card">Card</option>
-                    <option value="mobile">Mobile</option>
-                  </select>               
+                    <select id="paymentMethod" class="form-select mt-2">
+                        <option value="cash">Cash</option>
+                        <option value="card">Card</option>
+                        <option value="mobile">Mobile</option>
+                    </select>               
                 </div>
                 <div class="cart-summary-2">
                     <button class="btn btn-success w-100 mt-3" onclick="completeSale()"><i class="fas fa-check-circle me-2"></i>Complete Sale</button>
@@ -86,16 +88,8 @@
                     <button class="btn btn-outline-danger w-100 mt-2" onclick="clearCart()"><i class="fas fa-trash me-2"></i>Clear Cart</button>
                 </div>
             </div>
-           
-
-
-
-
-            </div>
-       
-       
         </div>
-    
+    </div>
 
     <!-- Receipt Modal -->
     <div class="modal fade" id="receiptModal" tabindex="-1">
@@ -115,14 +109,14 @@
                                 <label class="form-label small mb-0">Email receipt</label>
                                 <div class="input-group input-group-sm">
                                     <input type="email" id="receiptEmail" class="form-control" placeholder="customer@example.com">
-                                    <button class="btn btn-outline-primary" onclick="sendReceiptEmailFromModal('${transactionNumber}')" style="font-size:0.75rem;">Send</button>
+                                    <button class="btn btn-outline-primary" onclick="sendReceiptEmailFromModal()" style="font-size:0.75rem;">Send</button>
                                 </div>
                             </div>
                             <div class="flex-grow-1" style="min-width:140px;">
                                 <label class="form-label small mb-0">SMS receipt</label>
                                 <div class="input-group input-group-sm">
                                     <input type="tel" id="receiptPhone" class="form-control" placeholder="+254700000000">
-                                    <button class="btn btn-outline-primary" onclick="sendReceiptSMSFromModal('${transactionNumber}')" style="font-size:0.75rem;">Send</button>
+                                    <button class="btn btn-outline-primary" onclick="sendReceiptSMSFromModal()" style="font-size:0.75rem;">Send</button>
                                 </div>
                             </div>
                         </div>
@@ -142,5 +136,14 @@
     <script src="assets/js/pos.js"></script>
     <script src="assets/js/sidebar.js"></script>
     <script src="assets/js/theme-manager.js"></script>
+    
+    <script>
+        // Bind sidebar links to close on mobile when clicked
+        document.addEventListener('DOMContentLoaded', function() {
+            if (typeof bindMobileSidebarLinks === 'function') {
+                bindMobileSidebarLinks();
+            }
+        });
+    </script>
 </body>
 </html>

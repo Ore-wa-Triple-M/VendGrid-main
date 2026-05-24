@@ -9,16 +9,96 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <link rel="stylesheet" href="assets/css/shared.css">
-     <link rel="stylesheet" href="assets/css/light-theme.css">
+    <link rel="stylesheet" href="assets/css/light-theme.css">
+    <style>
+        /* Product info popup styles */
+        .product-info-popup {
+            position: fixed;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            padding: 1.25rem;
+            z-index: 10000;
+            min-width: 300px;
+            max-width: 400px;
+            display: none;
+            animation: fadeIn 0.2s ease;
+        }
+        .product-info-popup.show {
+            display: block;
+        }
+        .product-info-popup h6 {
+            margin-bottom: 0.75rem;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 0.5rem;
+        }
+        .product-info-popup .info-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+            font-size: 0.85rem;
+        }
+        .product-info-popup .info-label {
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+        .product-info-popup .info-value {
+            color: var(--text-primary);
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .clickable-row {
+            cursor: pointer;
+            transition: background-color 0.15s;
+        }
+        .clickable-row:hover {
+            background-color: var(--bg-hover) !important;
+        }
+        .pagination-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+        .pagination-buttons {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+        .pagination-buttons button {
+            min-width: 35px;
+        }
+        .page-size-selector {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .page-size-selector select {
+            width: 70px;
+        }
+    </style>
 </head>
-<body>
+<body class="auth-loading">
 
 <!-- Toast Container -->
 <div id="toastContainer"></div>
 
-<!-- Navbar -->
+<!-- Product Info Popup -->
+<div id="productInfoPopup" class="product-info-popup">
+    <div id="popupContent"></div>
+</div>
+
+<!-- Navbar with mobile menu button -->
 <nav class="navbar navbar-expand-lg navbar-dark bg-primary fixed-top">
     <div class="container-fluid">
+        <button class="mobile-menu-toggle" id="mobileMenuToggle" onclick="toggleMobileSidebar()">
+            <i class="fas fa-bars"></i>
+        </button>
         <a class="navbar-brand" href="dashboard.html">
             <i class="fas fa-cash-register me-2"></i>VendGrid
         </a>
@@ -41,6 +121,9 @@
         </div>
     </div>
 </nav>
+
+<!-- Sidebar Overlay (closes sidebar when clicked) -->
+<div class="sidebar-overlay" onclick="closeMobileSidebar()"></div>
 
 <!-- Sidebar -->
 <div class="sidebar">
@@ -108,11 +191,11 @@
     </ul>
 
     <div class="tab-content">
-        <!-- Products Tab (unchanged) -->
+        <!-- Products Tab -->
         <div class="tab-pane fade show active" id="products-tab">
             <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
                 <div class="d-flex gap-2 flex-wrap">
-                    <input type="text" id="productSearch" class="form-control" style="width:220px" placeholder="Search products…">
+                    <input type="text" id="productSearch" class="form-control" style="width:220px" placeholder="Search products...">
                     <select id="categoryFilter" class="form-select" style="width:180px">
                         <option value="">All Categories</option>
                     </select>
@@ -122,25 +205,51 @@
                 </button>
             </div>
 
-            <!-- Active products table -->
+            <!-- Active products table with pagination -->
             <div class="card shadow-sm">
                 <div class="card-body p-0">
                     <div class="table-responsive">
                         <table class="table table-hover mb-0">
                             <thead class="table-light">
                                 <tr>
-                                    <th>SKU</th><th>Barcode</th><th>Name</th><th>Category</th>
-                                    <th>Price (KES)</th><th>Cost (KES)</th><th>Stock</th><th>Status</th><th>Actions</th>
+                                    <th>Product Code</th>
+                                    <th>Barcode</th>
+                                    <th>Name</th>
+                                    <th>Category</th>
+                                    <th>UOM</th>
+                                    <th>Price (KES)</th>
+                                    <th>Cost (KES)</th>
+                                    <th>Stock</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
                                 </tr>
                             </thead>
-                            <tbody id="productsTable">
-                                <tr><td colspan="9" class="text-center py-4">
-                                    <div class="spinner-border spinner-border-sm text-primary"></div>
-                                    <span class="ms-2 text-muted">Loading products…</span>
-                                 </tr>
-                            </tbody>
-                         </table>
+                            <tbody id="productsTable"></tbody>
+                        </table>
                     </div>
+                </div>
+            </div>
+
+            <!-- Pagination Controls -->
+            <div class="pagination-controls mt-3">
+                <div class="page-size-selector">
+                    <span class="text-muted small">Show:</span>
+                    <select id="pageSizeSelect" class="form-select form-select-sm">
+                        <option value="5">5</option>
+                        <option value="10" selected>10</option>
+                        <option value="25">25</option>
+                        <option value="50">50</option>
+                    </select>
+                    <span class="text-muted small">entries</span>
+                </div>
+                <div class="pagination-buttons">
+                    <button id="prevPageBtn" class="btn btn-sm btn-outline-secondary" disabled>
+                        <i class="fas fa-chevron-left"></i>
+                    </button>
+                    <span id="pageInfo" class="text-muted small">Page 1 of 1</span>
+                    <button id="nextPageBtn" class="btn btn-sm btn-outline-secondary" disabled>
+                        <i class="fas fa-chevron-right"></i>
+                    </button>
                 </div>
             </div>
 
@@ -154,16 +263,19 @@
                         <table class="table table-hover mb-0">
                             <thead class="table-light">
                                 <tr>
-                                    <th>SKU</th><th>Barcode</th><th>Name</th><th>Category</th>
-                                    <th>Price (KES)</th><th>Cost (KES)</th><th>Deleted At</th><th>Actions</th>
+                                    <th>Product Code</th>
+                                    <th>Barcode</th>
+                                    <th>Name</th>
+                                    <th>Category</th>
+                                    <th>UOM</th>
+                                    <th>Price (KES)</th>
+                                    <th>Cost (KES)</th>
+                                    <th>Deleted At</th>
+                                    <th>Actions</th>
                                 </tr>
                             </thead>
-                            <tbody id="archivedProductsTable">
-                                <tr><td colspan="8" class="text-center py-4">
-                                    <div class="spinner-border spinner-border-sm text-primary"></div>
-                                 </tr>
-                            </tbody>
-                         </table>
+                            <tbody id="archivedProductsTable"></tbody>
+                        </table>
                     </div>
                 </div>
             </div>
@@ -183,16 +295,17 @@
                         <table class="table table-hover mb-0">
                             <thead class="table-light">
                                 <tr>
-                                    <th>Product</th><th>SKU</th><th>Stock Qty</th>
-                                    <th>Reorder Point</th><th>Status</th><th>Actions</th>
+                                    <th>Product</th>
+                                    <th>Product Code</th>
+                                    <th>Stock Qty</th>
+                                    <th>Reorder Point</th>
+                                    <th>UOM</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
                                 </tr>
                             </thead>
-                            <tbody id="stockTable">
-                                <tr><td colspan="6" class="text-center py-4">
-                                    <div class="spinner-border spinner-border-sm text-primary"></div>
-                                 </tr>
-                            </tbody>
-                         </table>
+                            <tbody id="stockTable"></tbody>
+                        </table>
                     </div>
                 </div>
             </div>
@@ -212,16 +325,16 @@
                         <table class="table table-hover mb-0">
                             <thead class="table-light">
                                 <tr>
-                                    <th>Name</th><th>Contact Person</th><th>Email</th>
-                                    <th>Phone</th><th>Status</th><th>Actions</th>
+                                    <th>Name</th>
+                                    <th>Contact Person</th>
+                                    <th>Email</th>
+                                    <th>Phone</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
                                 </tr>
                             </thead>
-                            <tbody id="suppliersTable">
-                                <tr><td colspan="6" class="text-center py-4">
-                                    <div class="spinner-border spinner-border-sm text-primary"></div>
-                                 </tr>
-                            </tbody>
-                         </table>
+                            <tbody id="suppliersTable"></tbody>
+                        </table>
                     </div>
                 </div>
             </div>
@@ -241,22 +354,23 @@
                         <table class="table table-hover mb-0">
                             <thead class="table-light">
                                 <tr>
-                                    <th>PO #</th><th>Supplier</th><th>Status</th><th>Total (KES)</th>
-                                    <th>Order Date</th><th>Expected Delivery</th><th>Actions</th>
+                                    <th>PO #</th>
+                                    <th>Supplier</th>
+                                    <th>Status</th>
+                                    <th>Total (KES)</th>
+                                    <th>Order Date</th>
+                                    <th>Expected Delivery</th>
+                                    <th>Actions</th>
                                 </tr>
                             </thead>
-                            <tbody id="poTable">
-                                <tr><td colspan="7" class="text-center py-4">
-                                    <div class="spinner-border spinner-border-sm text-primary"></div>
-                                 </tr>
-                            </tbody>
-                         </table>
+                            <tbody id="poTable"></tbody>
+                        </table>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Movements Tab (with Clear button) -->
+        <!-- Movements Tab -->
         <div class="tab-pane fade" id="movements-tab">
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <h5 class="mb-0">Stock Movements <small class="text-muted fw-normal">(last 100)</small></h5>
@@ -270,16 +384,16 @@
                         <table class="table table-hover mb-0">
                             <thead class="table-light">
                                 <tr>
-                                    <th>Product</th><th>Type</th><th>Qty Change</th>
-                                    <th>Reference</th><th>Notes</th><th>Date</th>
+                                    <th>Product</th>
+                                    <th>Type</th>
+                                    <th>Qty Change</th>
+                                    <th>Reference</th>
+                                    <th>Notes</th>
+                                    <th>Date</th>
                                 </tr>
                             </thead>
-                            <tbody id="movementsTable">
-                                <tr><td colspan="6" class="text-center py-4">
-                                    <div class="spinner-border spinner-border-sm text-primary"></div>
-                                 </tr>
-                            </tbody>
-                         </table>
+                            <tbody id="movementsTable"></tbody>
+                        </table>
                     </div>
                 </div>
             </div>
@@ -305,12 +419,8 @@
                                     <th>Actions</th>
                                 </tr>
                             </thead>
-                            <tbody id="categoriesTable">
-                                <tr><td colspan="4" class="text-center py-4">
-                                    <div class="spinner-border spinner-border-sm text-primary"></div>
-                                 </tr>
-                            </tbody>
-                         </table>
+                            <tbody id="categoriesTable"></tbody>
+                        </table>
                     </div>
                 </div>
             </div>
@@ -318,11 +428,7 @@
     </div><!-- /tab-content -->
 </div><!-- /main-content -->
 
-<!-- ═══════════════════════════════════════════════════════════
-     MODALS
-═══════════════════════════════════════════════════════════ -->
-
-<!-- Product Modal -->
+<!-- Product Modal (with UOM and required fields) -->
 <div class="modal fade" id="productModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
@@ -334,12 +440,14 @@
                 <input type="hidden" id="productId">
                 <div class="row g-3">
                     <div class="col-md-6">
-                        <label class="form-label">SKU</label>
+                        <label class="form-label">Product Code <span class="text-danger">*</span></label>
                         <input type="text" class="form-control" id="prodSku" placeholder="Auto-generated if empty">
+                        <small class="text-muted">Unique identifier for this product</small>
                     </div>
                     <div class="col-md-6">
-                        <label class="form-label">Barcode</label>
+                        <label class="form-label">Barcode <span class="text-danger">*</span></label>
                         <input type="text" class="form-control" id="prodBarcode" required>
+                        <small class="text-muted">Required for scanning at POS</small>
                     </div>
                     <div class="col-12">
                         <label class="form-label">Name <span class="text-danger">*</span></label>
@@ -349,15 +457,29 @@
                         <label class="form-label">Description</label>
                         <textarea class="form-control" id="prodDesc" rows="2"></textarea>
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-md-3">
+                        <label class="form-label">Unit of Measure <span class="text-danger">*</span></label>
+                        <select class="form-select" id="prodUom" required>
+                            <option value="pcs">Pieces (pcs)</option>
+                            <option value="kg">Kilograms (kg)</option>
+                            <option value="g">Grams (g)</option>
+                            <option value="L">Litres (L)</option>
+                            <option value="ml">Millilitres (ml)</option>
+                            <option value="box">Box (box)</option>
+                            <option value="dozen">Dozen (doz)</option>
+                            <option value="pack">Pack (pack)</option>
+                            <option value="carton">Carton (ctn)</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
                         <label class="form-label">Price (KES) <span class="text-danger">*</span></label>
-                        <input type="number" class="form-control" id="prodPrice" min="0" step="0.01"  required>
+                        <input type="number" class="form-control" id="prodPrice" min="0" step="0.01" required>
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-md-3">
                         <label class="form-label">Buying Price (KES)</label>
-                        <input type="number" class="form-control" id="prodCost" min="0" step="0.01"  required>
+                        <input type="number" class="form-control" id="prodCost" min="0" step="0.01">
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-md-3">
                         <label class="form-label">Stock Quantity</label>
                         <input type="number" class="form-control" id="prodStock" min="0" value="0">
                     </div>
@@ -366,10 +488,11 @@
                         <input type="number" class="form-control" id="prodReorder" min="0" value="5">
                     </div>
                     <div class="col-md-4">
-                        <label class="form-label">Category</label>
-                        <select class="form-select" id="productCategory">
-                            <option value="">— None —</option>
+                        <label class="form-label">Category <span class="text-danger">*</span></label>
+                        <select class="form-select" id="productCategory" required>
+                            <option value="">— Select Category —</option>
                         </select>
+                        <small class="text-muted">Required – create categories in Categories tab</small>
                     </div>
                     <div class="col-md-4">
                         <label class="form-label">Status</label>
@@ -560,7 +683,6 @@
     </div>
 </div>
 
-<!-- Scripts -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="assets/js/supabase.js"></script>
@@ -570,6 +692,14 @@
 <script src="assets/js/xlsx-export.js"></script>
 <script src="assets/js/sidebar.js"></script>
 <script src="assets/js/theme-manager.js"></script>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        if (typeof bindMobileSidebarLinks === 'function') {
+            bindMobileSidebarLinks();
+        }
+    });
+</script>
 
 </body>
 </html>

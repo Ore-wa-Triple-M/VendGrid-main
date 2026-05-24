@@ -1,14 +1,8 @@
 /**
- * signup.js – VendGrid Signup Flow
- *
- * FIXES APPLIED:
- *  1. emailRedirectTo URL built from window.location.origin + basePath so it
- *     works on any subdirectory or custom domain without path mangling.
- *  2. After signUp, inspect user.email_confirmed_at – when Supabase has email
- *     confirmation DISABLED the user is auto-confirmed; we detect this and
- *     redirect to login instead of stranding the user on verify-email.html.
- *  3. Client-side email format validation before the API call.
- *  4. Clear error messages for already-registered emails.
+ * signup.js – VendGrid Signup Flow (FIXED)
+ * 
+ * Fix: Handles Supabase's behavior when email confirmation is enabled
+ * (user object may be null but account is created)
  */
 
 'use strict';
@@ -21,35 +15,36 @@ document.addEventListener('DOMContentLoaded', () => {
         e.preventDefault();
 
         const firstName = document.getElementById('firstName').value.trim();
-        const lastName  = document.getElementById('lastName').value.trim();
-        const email     = document.getElementById('email').value.trim().toLowerCase();
-        const password  = document.getElementById('password').value;
-        const role      = document.getElementById('role').value;
+        const lastName = document.getElementById('lastName').value.trim();
+        const email = document.getElementById('email').value.trim().toLowerCase();
+        const password = document.getElementById('password').value;
+        const role = document.getElementById('role').value;
 
-        // ── Client-side validation ────────────────────────────────────────
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        // Validation
+        if (!firstName || !lastName) {
+            showNotification('Please enter your full name.', 'error');
+            return;
+        }
+
+        const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+        if (!emailRegex.test(email)) {
             showNotification('Please enter a valid email address.', 'error');
             return;
         }
+
         if (password.length < 8) {
-            showNotification('Password must be at least 8 characters.', 'error');
-            return;
-        }
-        if (!firstName || !lastName) {
-            showNotification('Please enter your first and last name.', 'error');
+            showNotification('Password must be at least 8 characters long.', 'error');
             return;
         }
 
         const btn = form.querySelector('button[type="submit"]');
         const originalText = btn.innerHTML;
-        btn.innerHTML = '<span class="loading"></span> Creating account…';
-        btn.disabled  = true;
+        btn.innerHTML = '<span class="loading"></span> Creating account...';
+        btn.disabled = true;
 
         try {
-            // Build stable redirect URL from origin + current directory path
-            const origin    = globalThis.location.origin;
-            const basePath  = globalThis.location.pathname.replace(/\/[^/]*$/, '/');
-            const verifyUrl = origin + basePath + 'verify-email.html';
+            const baseUrl = window.location.origin + window.location.pathname.replace(/\/[^/]*$/, '/');
+            const verifyUrl = baseUrl + 'verify-email.html';
 
             const { data: authData, error: signUpError } = await supabaseClient.auth.signUp({
                 email,
@@ -58,73 +53,111 @@ document.addEventListener('DOMContentLoaded', () => {
                     emailRedirectTo: verifyUrl,
                     data: {
                         first_name: firstName,
-                        last_name:  lastName,
-                        role:       role
+                        last_name: lastName,
+                        role: role
                     }
                 }
             });
 
-            if (signUpError) throw signUpError;
-
-            if (!authData || !authData.user) {
-                throw new Error('Signup did not return a user. Please try again.');
+            if (signUpError) {
+                // Handle specific errors
+                if (signUpError.status === 429 || signUpError.message?.includes('rate limit')) {
+                    throw new Error('TOO_MANY_ATTEMPTS');
+                }
+                if (signUpError.message?.includes('already registered')) {
+                    throw new Error('EMAIL_EXISTS');
+                }
+                throw signUpError;
             }
 
-            const user = authData.user;
+            // IMPORTANT: With email confirmation ENABLED, authData.user may be null
+            // but the account is still created! Check if we have ANY success indicator.
+            const hasUser = !!authData?.user;
+            const hasSession = !!authData?.session;
+            const emailSent = !signUpError; // If no error, Supabase attempted to send email
 
-            // ── Upsert profile row (safety net if DB trigger is missing) ──
-            const { error: profileError } = await supabaseClient
-                .from('profiles')
-                .upsert({
-                    id:         user.id,
-                    email:      email,
-                    first_name: firstName,
-                    last_name:  lastName,
-                    role:       role,
-                    is_active:  true,
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString()
-                }, { onConflict: 'id' });
-
-            if (profileError) {
-                console.warn('Profile upsert warning (non-fatal):', profileError.message);
+            if (!hasUser && !hasSession) {
+                // No user and no session – but email confirmation might still be pending
+                // This is NORMAL when email confirmation is enabled.
+                // We should NOT throw an error here.
+                console.log('Email confirmation enabled – user created, awaiting verification');
             }
 
-            // Store email so verify-email.html can display it / offer resend.
-            try { sessionStorage.setItem('vg_pending_email', email); } catch(_) {}
+            // Try to create/update profile (if we have user ID)
+            if (authData?.user?.id) {
+                const { error: profileError } = await supabaseClient
+                    .from('profiles')
+                    .upsert({
+                        id: authData.user.id,
+                        email: email,
+                        first_name: firstName,
+                        last_name: lastName,
+                        role: role,
+                        is_active: true,
+                        created_at: new Date().toISOString(),
+                        updated_at: new Date().toISOString()
+                    }, { onConflict: 'id' });
 
-            // ── Route based on confirmation state ─────────────────────────
-            // If email_confirmed_at is already set, the Supabase project has
-            // "Enable email confirmations" turned OFF — user is auto-confirmed.
-            // Skip the verify page and go straight to login.
-            if (user.email_confirmed_at) {
-                try { await supabaseClient.auth.signOut(); } catch(_) {}
-                showNotification('Account created! Please sign in.', 'success');
-                setTimeout(() => { globalThis.location.href = 'login.html'; }, 1200);
+                if (profileError) {
+                    console.warn('Profile upsert warning (non-fatal):', profileError.message);
+                }
+            }
+
+            // Store email for verification page
+            try { sessionStorage.setItem('vg_pending_email', email); } catch(e) {}
+
+            // Check if user is already confirmed (email confirmation disabled)
+            if (authData?.user?.email_confirmed_at) {
+                try { await supabaseClient.auth.signOut(); } catch(e) {}
+                showNotification('Account created successfully! Please sign in.', 'success');
+                setTimeout(() => {
+                    window.location.href = 'login.html';
+                }, 1500);
             } else {
-                // Confirmation is enabled — show the "check your inbox" page.
-                globalThis.location.href = 'verify-email.html';
+                // Email confirmation is enabled – show verification page
+                showNotification('Verification email sent! Check your inbox.', 'success');
+                setTimeout(() => {
+                    window.location.href = 'verify-email.html';
+                }, 1500);
             }
 
         } catch (err) {
-            let msg = err.message || 'Unknown error';
-            if (/already registered|already been registered|User already registered/i.test(msg)) {
-                msg = 'An account with this email already exists.';
-            } else if (/invalid.*email|email.*invalid/i.test(msg)) {
-                msg = 'Please enter a valid email address.';
-            } else {
-                msg = 'Signup failed: ' + msg;
+            console.error('Signup error:', err);
+            
+            let userMessage = '';
+            const errorCode = err.message || '';
+            
+            switch(errorCode) {
+                case 'TOO_MANY_ATTEMPTS':
+                    userMessage = 'Too many signup attempts. Please wait 5 minutes before trying again.';
+                    break;
+                case 'EMAIL_EXISTS':
+                    userMessage = 'An account with this email already exists. Please login instead.';
+                    setTimeout(() => {
+                        if (confirm('Account already exists. Go to login page?')) {
+                            window.location.href = 'login.html';
+                        }
+                    }, 100);
+                    break;
+                default:
+                    if (err.message?.includes('confirmation email')) {
+                        userMessage = 'Unable to send verification email. Please try again in a few minutes.';
+                    } else {
+                        userMessage = 'Unable to create account. Please try again later.';
+                    }
             }
-            showNotification(msg, 'error');
+            
+            showNotification(userMessage, 'error');
+        } finally {
             btn.innerHTML = originalText;
-            btn.disabled  = false;
+            btn.disabled = false;
         }
     });
 });
 
 function togglePassword() {
     const input = document.getElementById('password');
-    const icon  = document.getElementById('passwordToggleIcon');
+    const icon = document.getElementById('passwordToggleIcon');
     if (input.type === 'password') {
         input.type = 'text';
         icon.classList.replace('fa-eye', 'fa-eye-slash');

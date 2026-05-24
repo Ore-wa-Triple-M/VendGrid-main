@@ -4,6 +4,11 @@
  * Full RBAC integration: page access check + permission-based UI.
  * Categories Management System – permission checks removed to work with existing RBAC.
  * FIXED: Added 'VOID_RESTORE' movement type with proper badge colour.
+ * ADDED: Pagination (5/10/25/50 per page)
+ * ADDED: Product info popup on row click
+ * ADDED: UOM (Unit of Measure) support
+ * ADDED: Barcode and Category required validation
+ * ADDED: "Product Code" label instead of "SKU"
  */
 
 'use strict';
@@ -51,9 +56,152 @@ let allPurchaseOrders  = [];
 let allStockMovements  = [];
 
 // ============================================================
-//  3. CATEGORIES MANAGEMENT
+// PAGINATION STATE
+// ============================================================
+let currentPage = 1;
+let pageSize = 10;
+let filteredProducts = [];
+let currentDisplayProducts = [];
+
+// ============================================================
+// PRODUCT INFO POPUP
+// ============================================================
+let currentPopupTimeout = null;
+
+function showProductInfoPopup(product, event) {
+    const popup = document.getElementById('productInfoPopup');
+    if (!popup) return;
+    
+    const category = allCategories.find(c => c.id === product.category_id);
+    
+    const content = `
+        <h6><i class="fas fa-box me-2"></i>${escapeHtml(product.name)}</h6>
+        <div class="info-row">
+            <span class="info-label">Product Code:</span>
+            <span class="info-value">${escapeHtml(product.sku || '—')}</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">Barcode:</span>
+            <span class="info-value">${escapeHtml(product.barcode || '—')}</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">Category:</span>
+            <span class="info-value">${escapeHtml(category ? category.name : '—')}</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">UOM:</span>
+            <span class="info-value">${escapeHtml(product.uom || 'pcs')}</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">Price:</span>
+            <span class="info-value">${formatCurrency(product.price)}</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">Cost:</span>
+            <span class="info-value">${formatCurrency(product.cost || 0)}</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">Stock:</span>
+            <span class="info-value ${product.stock_quantity <= (product.reorder_point || 5) ? 'text-warning' : ''}">
+                ${product.stock_quantity} ${escapeHtml(product.uom || 'pcs')}
+            </span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">Reorder Point:</span>
+            <span class="info-value">${product.reorder_point || 5} ${escapeHtml(product.uom || 'pcs')}</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">Description:</span>
+            <span class="info-value">${escapeHtml(product.description || '—')}</span>
+        </div>
+        <hr class="my-2">
+        <div class="d-flex gap-2 justify-content-end">
+            <button class="btn btn-sm btn-outline-primary" onclick="INV.openProductModal(${product.id})">
+                <i class="fas fa-edit"></i> Edit
+            </button>
+            <button class="btn btn-sm btn-outline-danger" onclick="INV.deleteProduct(${product.id})">
+                <i class="fas fa-trash"></i> Delete
+            </button>
+        </div>
+    `;
+    
+    popup.innerHTML = content;
+    popup.style.display = 'block';
+    
+    if (event) {
+        popup.style.left = (event.clientX + 15) + 'px';
+        popup.style.top = (event.clientY - 10) + 'px';
+    }
+    
+    if (currentPopupTimeout) clearTimeout(currentPopupTimeout);
+    currentPopupTimeout = setTimeout(() => {
+        popup.style.display = 'none';
+    }, 5000);
+}
+
+function hideProductInfoPopup() {
+    const popup = document.getElementById('productInfoPopup');
+    if (popup) popup.style.display = 'none';
+    if (currentPopupTimeout) clearTimeout(currentPopupTimeout);
+}
+
+// ============================================================
+// PAGINATION FUNCTIONS
 // ============================================================
 
+function updatePagination() {
+    const totalPages = Math.ceil(filteredProducts.length / pageSize) || 1;
+    const start = (currentPage - 1) * pageSize;
+    const end = start + pageSize;
+    currentDisplayProducts = filteredProducts.slice(start, end);
+    
+    const pageInfo = document.getElementById('pageInfo');
+    const prevBtn = document.getElementById('prevPageBtn');
+    const nextBtn = document.getElementById('nextPageBtn');
+    
+    if (pageInfo) pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
+    if (prevBtn) prevBtn.disabled = currentPage === 1;
+    if (nextBtn) nextBtn.disabled = currentPage === totalPages;
+    
+    renderProductsTable(currentDisplayProducts);
+}
+
+function setupPaginationControls() {
+    const prevBtn = document.getElementById('prevPageBtn');
+    const nextBtn = document.getElementById('nextPageBtn');
+    const pageSizeSelect = document.getElementById('pageSizeSelect');
+    
+    if (prevBtn) {
+        prevBtn.onclick = () => {
+            if (currentPage > 1) {
+                currentPage--;
+                updatePagination();
+            }
+        };
+    }
+    
+    if (nextBtn) {
+        nextBtn.onclick = () => {
+            const totalPages = Math.ceil(filteredProducts.length / pageSize) || 1;
+            if (currentPage < totalPages) {
+                currentPage++;
+                updatePagination();
+            }
+        };
+    }
+    
+    if (pageSizeSelect) {
+        pageSizeSelect.onchange = (e) => {
+            pageSize = parseInt(e.target.value);
+            currentPage = 1;
+            updatePagination();
+        };
+    }
+}
+
+// ============================================================
+//  3. CATEGORIES MANAGEMENT
+// ============================================================
 
 async function loadCategories() {
     const { data, error } = await supabaseClient
@@ -76,7 +224,7 @@ function renderCategoriesTable() {
     if (!tbody) return;
 
     if (!allCategories.length) {
-        tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-4">No categories found. Click "Add Category" to create one. </tr>';
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-4">No categories found. Click "Add Category" to create one. </td>';
         return;
     }
 
@@ -94,8 +242,8 @@ function renderCategoriesTable() {
                         data-action="delete-cat" data-id="${cat.id}" data-label="${escapeHtml(cat.name)}">
                     <i class="fas fa-trash-alt"></i>
                 </button>
-             </td>
-         </tr>
+              </td>
+          </tr>
     `).join('');
 }
 
@@ -172,7 +320,6 @@ async function deleteCategory(id, name) {
         return;
     }
 
-    // Check if any active product uses this category
     const { count, error: checkError } = await supabaseClient
         .from('products')
         .select('*', { count: 'exact', head: true })
@@ -194,7 +341,6 @@ async function deleteCategory(id, name) {
     const confirmed = await showConfirmationToast(`⚠️ PERMANENT DELETE: Remove category "${name}" entirely? This cannot be undone.`, 10000, 'Permanently Delete');
     if (!confirmed) return;
 
-    // Hard delete from database
     const { error } = await supabaseClient
         .from('categories')
         .delete()
@@ -217,7 +363,8 @@ function refreshCategoryDependentUI() {
     _populateCategoryDropdowns();
     const productsTab = document.getElementById('products-tab');
     if (productsTab && productsTab.classList.contains('active')) {
-        renderProductsTable();
+        applyProductFilters();
+        updatePagination();
     }
 }
 
@@ -226,7 +373,7 @@ function refreshCategoryDependentUI() {
 // ============================================================
 
 async function loadProducts() {
-    showTableSpinner('productsTable', 9);
+    showTableSpinner('productsTable', 10);
     await loadCategories();
     const { data: products, error: prodErr } = await supabaseClient
         .from('products')
@@ -240,8 +387,11 @@ async function loadProducts() {
     }
     allProducts = products || [];
     _populateCategoryDropdowns();
-    renderProductsTable();
+    applyProductFilters();
+    setupPaginationControls();
+    updatePagination();
     loadArchivedProducts();
+    loadStock();
 }
 
 async function loadArchivedProducts() {
@@ -282,51 +432,80 @@ function _populateCategoryDropdowns() {
             allCategories.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
     }
     const modalEl = document.getElementById('productCategory');
-    if (modalEl) modalEl.innerHTML = options;
+    if (modalEl) modalEl.innerHTML = '<option value="">— Select Category —</option>' +
+        allCategories.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
 }
 
-function renderProductsTable() {
+function applyProductFilters() {
     const search = (document.getElementById('productSearch')?.value || '').toLowerCase();
     const categoryId = document.getElementById('categoryFilter')?.value || '';
-    const filtered = allProducts.filter(p => {
-        const matchSearch = p.name.toLowerCase().includes(search) || (p.sku || '').toLowerCase().includes(search) || (p.barcode || '').toLowerCase().includes(search);
+    
+    filteredProducts = allProducts.filter(p => {
+        const matchSearch = p.name.toLowerCase().includes(search) ||
+                            (p.sku || '').toLowerCase().includes(search) ||
+                            (p.barcode || '').toLowerCase().includes(search);
         const matchCat = !categoryId || String(p.category_id) === categoryId;
         return matchSearch && matchCat;
     });
+    
+    currentPage = 1;
+    updatePagination();
+}
+
+function renderProductsTable(productsToRender = null) {
+    const data = productsToRender !== null ? productsToRender : filteredProducts;
     const tbody = document.getElementById('productsTable');
     if (!tbody) return;
-    if (!filtered.length) {
-        tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">No products found</td></tr>';
+    
+    if (!data.length) {
+        tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">No products found</td></tr>';
         return;
     }
-    tbody.innerHTML = filtered.map(p => {
+    
+    tbody.innerHTML = data.map(p => {
         const cat = allCategories.find(c => c.id === p.category_id);
         const lowStock = p.stock_quantity <= (p.reorder_point || 5);
         return `
-            <tr>
+            <tr class="clickable-row" data-product-id="${p.id}" data-product-name="${escapeHtml(p.name)}">
                 <td><code>${escapeHtml(p.sku)}</code></td>
                 <td>${escapeHtml(p.barcode)}</td>
                 <td><strong>${escapeHtml(p.name)}</strong>${p.description ? `<br><small class="text-muted">${escapeHtml(p.description)}</small>` : ''}</td>
                 <td>${cat ? escapeHtml(cat.name) : '—'}</td>
+                <td>${escapeHtml(p.uom || 'pcs')}</td>
                 <td>${fmt(p.price)}</td>
                 <td>${fmt(p.cost)}</td>
                 <td><span class="${lowStock ? 'text-warning fw-bold' : ''}">${p.stock_quantity}</span>${lowStock ? '<span class="badge bg-warning text-dark ms-1">Low</span>' : ''}</td>
                 <td><span class="badge bg-${p.is_active ? 'success' : 'secondary'}">${p.is_active ? 'Active' : 'Inactive'}</span></td>
                 <td class="text-nowrap">
-                    ${hasPermission('canEditProduct') ? `<button class="icon-btn icon-btn-edit" title="Edit" onclick="INV.openProductModal(${p.id})"><i class="fas fa-edit"></i></button>` : ''}
-                    ${hasPermission('canAdjustStock') ? `<button class="icon-btn icon-btn-warn" title="Adjust Stock" onclick="INV.openAdjustModal(${p.id})"><i class="fas fa-warehouse"></i></button>` : ''}
-                    ${hasPermission('canDeleteProduct') ? `<button class="icon-btn icon-btn-delete" title="Delete" onclick="INV.deleteProduct(${p.id})"><i class="fas fa-trash"></i></button>` : ''}
+                    ${hasPermission('canEditProduct') ? `<button class="icon-btn icon-btn-edit" title="Edit" onclick="event.stopPropagation(); INV.openProductModal(${p.id})"><i class="fas fa-edit"></i></button>` : ''}
+                    ${hasPermission('canAdjustStock') ? `<button class="icon-btn icon-btn-warn" title="Adjust Stock" onclick="event.stopPropagation(); INV.openAdjustModal(${p.id})"><i class="fas fa-warehouse"></i></button>` : ''}
+                    ${hasPermission('canDeleteProduct') ? `<button class="icon-btn icon-btn-delete" title="Delete" onclick="event.stopPropagation(); INV.deleteProduct(${p.id})"><i class="fas fa-trash"></i></button>` : ''}
                 </td>
             </tr>
         `;
     }).join('');
+    
+    document.querySelectorAll('#productsTable .clickable-row').forEach(row => {
+        row.removeEventListener('click', handleRowClick);
+        row.addEventListener('click', handleRowClick);
+    });
+}
+
+function handleRowClick(event) {
+    if (event.target.closest('button')) return;
+    const row = event.currentTarget;
+    const productId = parseInt(row.dataset.productId);
+    const product = allProducts.find(p => p.id === productId);
+    if (product) {
+        showProductInfoPopup(product, event);
+    }
 }
 
 function renderArchivedProductsTable() {
     const tbody = document.getElementById('archivedProductsTable');
     if (!tbody) return;
     if (!allArchivedProducts.length) {
-        tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">No deleted products found</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">No deleted products found</td></tr>';
         return;
     }
     tbody.innerHTML = allArchivedProducts.map(p => {
@@ -338,6 +517,7 @@ function renderArchivedProductsTable() {
                 <td>${escapeHtml(p.barcode)}</td>
                 <td><strong>${escapeHtml(p.name)}</strong>${p.description ? `<br><small class="text-muted">${escapeHtml(p.description)}</small>` : ''}</td>
                 <td>${cat ? escapeHtml(cat.name) : '—'}</td>
+                <td>${escapeHtml(p.uom || 'pcs')}</td>
                 <td>${fmt(p.price)}</td>
                 <td>${fmt(p.cost)}</td>
                 <td>${deletedDate}</td>
@@ -358,7 +538,7 @@ function openProductModal(id = null) {
     const fields = {
         productId: '', prodSku: '', prodBarcode: '', prodName: '',
         prodDesc: '', prodPrice: '', prodCost: '', prodStock: '0',
-        prodReorder: '5', productCategory: '', prodActive: '1'
+        prodReorder: '5', productCategory: '', prodUom: 'pcs', prodActive: '1'
     };
     Object.entries(fields).forEach(([id, val]) => {
         const el = document.getElementById(id);
@@ -378,6 +558,7 @@ function openProductModal(id = null) {
         document.getElementById('prodStock').value = p.stock_quantity || 0;
         document.getElementById('prodReorder').value = p.reorder_point || 5;
         document.getElementById('productCategory').value = p.category_id || '';
+        document.getElementById('prodUom').value = p.uom || 'pcs';
         document.getElementById('prodActive').value = p.is_active ? '1' : '0';
         document.getElementById('productModalTitle').textContent = 'Edit Product';
     }
@@ -387,24 +568,47 @@ function openProductModal(id = null) {
 async function saveProduct() {
     const id = document.getElementById('productId').value;
     const name = document.getElementById('prodName').value.trim();
-    if (!name) { showToast('Product name is required', 'warning'); return; }
+    const barcode = document.getElementById('prodBarcode').value.trim();
+    const categoryId = document.getElementById('productCategory').value;
+    const uom = document.getElementById('prodUom').value;
+    
+    if (!categoryId) {
+        showToast('Please select a category before saving.', 'warning');
+        document.getElementById('productCategory').focus();
+        return;
+    }
+    
+    if (!barcode) {
+        showToast('Barcode is required. Products without barcode cannot be scanned at POS.', 'warning');
+        document.getElementById('prodBarcode').focus();
+        return;
+    }
+    
+    if (!name) { 
+        showToast('Product name is required', 'warning'); 
+        return; 
+    }
+    
     const data = {
         sku: document.getElementById('prodSku').value.trim() || ('SKU-' + Date.now()),
-        barcode: document.getElementById('prodBarcode').value.trim() || null,
+        barcode: barcode,
         name,
         description: document.getElementById('prodDesc').value.trim() || null,
         price: parseFloat(document.getElementById('prodPrice').value) || 0,
         cost: parseFloat(document.getElementById('prodCost').value) || 0,
         stock_quantity: parseInt(document.getElementById('prodStock').value) || 0,
         reorder_point: parseInt(document.getElementById('prodReorder').value) || 5,
-        category_id: document.getElementById('productCategory').value || null,
+        category_id: categoryId,
+        uom: uom,
         is_active: true,
         deleted_at: null,
         updated_at: new Date().toISOString()
     };
+    
     const result = id
         ? await supabaseClient.from('products').update(data).eq('id', id)
         : await supabaseClient.from('products').insert({ ...data, created_at: new Date().toISOString() });
+    
     if (result.error) {
         showToast(getUserFriendlyErrorMessage(result.error, 'Failed to save product.'), 'error');
     } else {
@@ -458,10 +662,10 @@ async function restoreProduct(id) {
 //  5. STOCK
 // ============================================================
 async function loadStock() {
-    showTableSpinner('stockTable', 6);
+    showTableSpinner('stockTable', 7);
     const { data: products, error } = await supabaseClient
         .from('products')
-        .select('id, sku, name, stock_quantity, reorder_point')
+        .select('id, sku, name, stock_quantity, reorder_point, uom')
         .eq('is_active', true)
         .is('deleted_at', null)
         .order('name');
@@ -471,7 +675,7 @@ async function loadStock() {
     }
     const tbody = document.getElementById('stockTable');
     if (!products?.length) {
-        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">No products found</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">No products found</td></tr>';
         return;
     }
     tbody.innerHTML = products.map(p => {
@@ -483,6 +687,7 @@ async function loadStock() {
                 <td><code>${escapeHtml(p.sku)}</code></td>
                 <td><strong>${p.stock_quantity}</strong></td>
                 <td>${reorder}</td>
+                <td>${escapeHtml(p.uom || 'pcs')}</td>
                 <td>${isLow ? '<span class="badge bg-warning text-dark">Low Stock</span>' : '<span class="badge bg-success">OK</span>'}</td>
                 <td>
                     ${hasPermission('canAdjustStock') ? `<button class="icon-btn icon-btn-warn" title="Adjust Stock" onclick="INV.openAdjustModal(${p.id})"><i class="fas fa-edit"></i></button>` : ''}
@@ -499,7 +704,7 @@ function openAdjustModal(productId = null) {
     }
     const select = document.getElementById('adjProductSelect');
     select.innerHTML = '<option value="">— Select Product —</option>' +
-        allProducts.map(p => `<option value="${p.id}">${escapeHtml(p.name)} (Stock: ${p.stock_quantity})</option>`).join('');
+        allProducts.map(p => `<option value="${p.id}">${escapeHtml(p.name)} (Stock: ${p.stock_quantity} ${p.uom || 'pcs'})</option>`).join('');
     if (productId) select.value = productId;
     document.getElementById('adjQty').value = '';
     document.getElementById('adjNotes').value = '';
@@ -535,7 +740,7 @@ async function adjustStock() {
         created_by: currentUser?.id
     });
     bootstrap.Modal.getInstance(document.getElementById('adjustModal')).hide();
-    showToast(`Stock updated: ${product.name} → ${newStock}`, 'success');
+    showToast(`Stock updated: ${product.name} → ${newStock} ${product.uom || 'pcs'}`, 'success');
     await loadProducts();
     await loadStock();
 }
@@ -805,7 +1010,7 @@ async function loadMovements() {
     const tbody = document.getElementById('movementsTable');
 
     if (!allStockMovements.length) {
-        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">No movements recorded</tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">No movements recorded</td>';
         return;
     }
 
@@ -853,11 +1058,10 @@ async function clearAllMovements() {
     if (!confirmed) return;
 
     try {
-        // Delete all rows from stock_movements
         const { error } = await supabaseClient
             .from('stock_movements')
             .delete()
-            .neq('id', 0); // delete all records
+            .neq('id', 0);
 
         if (error) throw error;
 
@@ -868,6 +1072,7 @@ async function clearAllMovements() {
         showNotification(getUserFriendlyErrorMessage(err, 'Failed to clear movements'), 'error');
     }
 }
+
 // ============================================================
 //  9. TAB LISTENERS
 // ============================================================
@@ -889,8 +1094,23 @@ async function clearAllMovements() {
             tabLink.addEventListener('shown.bs.tab', fn);
         }
     });
-    document.getElementById('productSearch')?.addEventListener('input', renderProductsTable);
-    document.getElementById('categoryFilter')?.addEventListener('change', renderProductsTable);
+    
+    const searchInput = document.getElementById('productSearch');
+    const categoryFilter = document.getElementById('categoryFilter');
+    
+    if (searchInput) {
+        searchInput.addEventListener('input', () => {
+            applyProductFilters();
+            updatePagination();
+        });
+    }
+    
+    if (categoryFilter) {
+        categoryFilter.addEventListener('change', () => {
+            applyProductFilters();
+            updatePagination();
+        });
+    }
 })();
 
 // ============================================================
@@ -905,7 +1125,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     const userNameEl = document.getElementById('userName');
     if (userNameEl) userNameEl.textContent = currentProfile?.first_name || currentUser?.email || 'User';
-    if (typeof applySidebarAccess === 'function') applySidebarAccess();
 
     const categoriesTableEl = document.getElementById('categoriesTable');
     if (categoriesTableEl) {
@@ -928,6 +1147,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
     await loadProducts();
+    await loadSuppliers();
+    await loadPOs();
+    await loadMovements();
+    await loadCategories();
+    renderCategoriesTable();
 });
 
 // ============================================================
@@ -939,11 +1163,11 @@ globalThis.INV = {
     openSupplierModal, saveSupplier, deleteSupplier, permanentlyDeleteSupplier,
     openPOModal, savePO, markPOReceived, cancelPO, permanentlyDeletePO,
     openCategoryModal, saveCategory, deleteCategory,
-    clearAllMovements  // NEW
+    clearAllMovements
 };
 
 // ============================================================
-//  12. EXCEL EXPORT (unchanged)
+//  12. EXCEL EXPORT
 // ============================================================
 async function exportInventoryToExcel() {
     await Promise.all([loadProducts(), loadStock(), loadSuppliers(), loadPOs(), loadMovements()]);
@@ -951,10 +1175,11 @@ async function exportInventoryToExcel() {
         name: 'Products',
         title: 'Products Catalog',
         columns: [
-            { label: 'SKU', key: 'sku', align: 'left' },
+            { label: 'Product Code', key: 'sku', align: 'left' },
             { label: 'Barcode', key: 'barcode', align: 'left' },
             { label: 'Name', key: 'name', align: 'left' },
             { label: 'Category', key: 'category_id', transform: (id) => allCategories.find(c => c.id == id)?.name || '—', align: 'left' },
+            { label: 'UOM', key: 'uom', align: 'left' },
             { label: 'Price (KES)', key: 'price', format: 'currency', align: 'right' },
             { label: 'Cost (KES)', key: 'cost', format: 'currency', align: 'right' },
             { label: 'Stock', key: 'stock_quantity', align: 'right' },
@@ -968,9 +1193,10 @@ async function exportInventoryToExcel() {
         title: 'Current Inventory Stock',
         columns: [
             { label: 'Product Name', key: 'name', align: 'left' },
-            { label: 'SKU', key: 'sku', align: 'left' },
+            { label: 'Product Code', key: 'sku', align: 'left' },
             { label: 'Stock Quantity', key: 'stock_quantity', align: 'right' },
             { label: 'Reorder Point', key: 'reorder_point', align: 'right' },
+            { label: 'UOM', key: 'uom', align: 'left' },
             { label: 'Status', key: 'stock_quantity', transform: (qty, row) => qty <= (row.reorder_point || 5) ? 'Low Stock' : 'OK', align: 'center' }
         ],
         data: allProducts
