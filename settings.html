@@ -9,9 +9,36 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="assets/css/shared.css">
     <link rel="stylesheet" href="assets/css/light-theme.css">
+    <style>
+        .section-locked {
+            position: relative;
+        }
+        .company-lock-note {
+            display: none;
+            background: var(--bg-table-stripe, #f8f9fa);
+            border: 1px solid var(--border-color, #dee2e6);
+            border-radius: 8px;
+            padding: 10px 14px;
+            margin-bottom: 16px;
+            font-size: 0.875rem;
+            color: var(--text-secondary, #6c757d);
+        }
+        .company-lock-note i {
+            color: #f0ad4e;
+        }
+        fieldset:disabled .form-control,
+        fieldset:disabled .form-select,
+        input:disabled,
+        textarea:disabled,
+        select:disabled {
+            opacity: 0.65;
+            cursor: not-allowed;
+            background-color: var(--bg-table-stripe, #f8f9fa);
+        }
+    </style>
 </head>
 <body class="auth-loading">
-    <!-- Navbar with mobile menu button -->
+    <!-- Navbar -->
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary fixed-top">
         <div class="container-fluid">
             <button class="mobile-menu-toggle" id="mobileMenuToggle" onclick="toggleMobileSidebar()">
@@ -36,7 +63,7 @@
         </div>
     </nav>
 
-    <!-- Sidebar Overlay (closes sidebar when clicked) -->
+    <!-- Sidebar Overlay -->
     <div class="sidebar-overlay" onclick="closeMobileSidebar()"></div>
 
     <div class="sidebar">
@@ -52,7 +79,7 @@
         <a href="reports.html" class="sidebar-item" data-tooltip="Reports">
             <i class="fas fa-chart-bar"></i><span>Reports</span>
         </a>
-        <a href="users.html" class="sidebar-item " data-tooltip="Users">
+        <a href="users.html" class="sidebar-item" data-tooltip="Users">
             <i class="fas fa-users"></i><span>Users</span>
         </a>
         <a href="settings.html" class="sidebar-item active" data-tooltip="Settings">
@@ -61,34 +88,97 @@
     </div>
 
     <div class="main-content">
-        <h1 class="mb-4">System Settings</h1>
-        <div class="card">
-            <div class="card-body">
+        <div class="page-header mb-4">
+             <div class="alert alert-info mb-3" id="companyInfoAlert">
+    <h2><i class="fas fa-building me-2"></i>
+    <strong>Company:</strong> </h2><h2 id="currentCompanyName">Loading...</h2>
+         </div>
+            <h1 class="page-title">Settings</h1>
+        </div>
+
+        <!-- ── COMPANY SETTINGS (admin only can edit) ─────────────────────── -->
+        <div class="card mb-4">
+            
+            <div class="card-body" id="companySettingsSection">
+                <h5 class="card-title mb-1">
+                    <i class="fas fa-building me-2 text-primary"></i>Company Settings
+                </h5>
+                <p class="text-muted mb-3" style="font-size:0.875rem;">
+                    Business information displayed on receipts and reports.
+                </p>
+
+                <!-- shown only to non-admins -->
+                <div class="company-lock-note" id="companyLockNote">
+                    <i class="fas fa-lock me-2"></i>
+                    These settings can only be changed by an <strong>admin</strong>. Contact your administrator to update company information.
+                </div>
+
                 <div class="row">
-                    <div class="col-md-6 mb-3"><label class="form-label">Business Name</label><input type="text" id="businessName" class="form-control"></div>
-                    <div class="col-md-6 mb-3"><label class="form-label">Business Email</label><input type="email" id="businessEmail" class="form-control"></div>
-                    <div class="col-12 mb-3"><label class="form-label">Address</label><textarea id="businessAddress" class="form-control" rows="2"></textarea></div>
-                    <div class="col-md-6 mb-3"><label class="form-label">Phone</label><input type="text" id="businessPhone" class="form-control"></div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">Business Name</label>
+                        <input type="text" id="businessName" class="form-control">
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">Business Email</label>
+                        <input type="email" id="businessEmail" class="form-control">
+                    </div>
+                    <div class="col-12 mb-3">
+                        <label class="form-label">Address</label>
+                        <textarea id="businessAddress" class="form-control" rows="2"></textarea>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">Phone</label>
+                        <input type="text" id="businessPhone" class="form-control">
+                    </div>
                     <div class="col-md-6 mb-3">
                         <label class="form-label">Company Logo</label>
                         <input type="file" id="companyLogo" class="form-control" accept="image/png,image/jpeg,image/svg+xml,image/webp">
-                        <div id="logoPreview" class="mt-2" style="max-width: 150px; max-height: 80px;"></div>
-                        <small class="text-muted">Recommended: 150x50px, max 2MB. PNG, JPG, SVG, WebP.</small>
+                        <div id="logoPreview" class="mt-2" style="max-width:150px; max-height:80px;"></div>
+                        <small class="text-muted">Recommended: 150×50px, max 2MB. PNG, JPG, SVG, WebP.</small>
                     </div>
-                    <div class="col-md-6 mb-3"><label class="form-label">Currency</label><select id="currency" class="form-select"><option value="KES">KES - Kenyan Shilling</option><option value="USD">USD - US Dollar</option></select></div>
-                    <div class="col-md-6 mb-3"><label class="form-label">VAT Rate (%)</label><input type="number" id="vatRate" class="form-control" step="0.1"></div>
-                    
-                    <!-- Theme Toggle (Admin only) -->
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">Currency</label>
+                        <select id="currency" class="form-select">
+                            <option value="KES">KES - Kenyan Shilling</option>
+                            <option value="USD">USD - US Dollar</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">VAT Rate (%)</label>
+                        <input type="number" id="vatRate" class="form-control" step="0.1">
+                    </div>
+                </div>
+
+                <button id="saveCompanyBtn" class="btn btn-primary" onclick="saveCompanySettings()">
+                    <i class="fas fa-save me-2"></i>Save Company Settings
+                </button>
+            </div>
+        </div>
+
+        <!-- ── PERSONAL / ACCOUNT SETTINGS (all roles) ────────────────────── -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <h5 class="card-title mb-1">
+                    <i class="fas fa-user-cog me-2 text-primary"></i>Account Settings
+                </h5>
+                <p class="text-muted mb-3" style="font-size:0.875rem;">
+                    Preferences that apply only to your account.
+                </p>
+
+                <div class="row">
                     <div class="col-12 mb-3">
                         <label class="form-label">Theme</label>
                         <div class="d-flex gap-3">
                             <button id="lightModeBtn" class="btn btn-outline-secondary">☀️ Light Mode</button>
-                            <button id="darkModeBtn" class="btn btn-outline-secondary">🌙 Dark Mode</button>
+                            <button id="darkModeBtn"  class="btn btn-outline-secondary">🌙 Dark Mode</button>
                         </div>
-                        <small class="text-muted">Switch Mode</small>
+                        <small class="text-muted">Your theme preference is saved on this device.</small>
                     </div>
                 </div>
-                <button class="btn btn-primary" onclick="saveSettings()"><i class="fas fa-save me-2"></i>Save Settings</button>
+
+                <button class="btn btn-primary" onclick="savePersonalSettings()">
+                    <i class="fas fa-save me-2"></i>Save Account Settings
+                </button>
             </div>
         </div>
     </div>
@@ -102,12 +192,10 @@
     <script src="assets/js/settings.js"></script>
     <script src="assets/js/sidebar.js"></script>
     <script src="assets/js/theme-manager.js"></script>
-    
+
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            if (typeof bindMobileSidebarLinks === 'function') {
-                bindMobileSidebarLinks();
-            }
+        document.addEventListener('DOMContentLoaded', function () {
+            if (typeof bindMobileSidebarLinks === 'function') bindMobileSidebarLinks();
         });
     </script>
 </body>

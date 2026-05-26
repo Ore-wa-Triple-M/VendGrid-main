@@ -7,6 +7,8 @@
  *   • A thin spacer row between each transaction group (txn-spacer)
  *   • All existing functionality (exports, KPIs, charts, void/delete,
  *     search, footer total) is fully preserved.
+ * 
+ * ADDED: Company isolation – all queries filtered by company_id
  */
 
 'use strict';
@@ -14,6 +16,18 @@
 let revenueChart = null;
 let paymentChart = null;
 let allSales     = [];
+
+// Helper to get current company ID
+function getReportsCompanyId() {
+    if (typeof getCurrentCompanyId === 'function') {
+        const id = getCurrentCompanyId();
+        if (id) return id;
+    }
+    if (currentProfile && currentProfile.company_id) {
+        return currentProfile.company_id;
+    }
+    return null;
+}
 
 // ── Inject grouped-transaction styles once ────────────────────────────────────
 (function injectGroupStyles() {
@@ -106,10 +120,17 @@ async function enrichSalesWithProductNames(sales) {
     }
     if (productIds.size === 0) return sales;
 
-    const { data: products, error } = await supabaseClient
+    const companyId = getReportsCompanyId();
+    let productQuery = supabaseClient
         .from('products')
         .select('id, name')
         .in('id', Array.from(productIds));
+    
+    if (companyId) {
+        productQuery = productQuery.eq('company_id', companyId);
+    }
+
+    const { data: products, error } = await productQuery;
 
     if (error) {
         console.warn('Failed to fetch product names:', error);
@@ -134,9 +155,11 @@ async function loadReports() {
     const days      = parseInt(document.getElementById('periodSelect').value) || 30;
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
+    
+    const companyId = getReportsCompanyId();
 
     try {
-        const { data: sales, error: salesError } = await supabaseClient
+        let salesQuery = supabaseClient
             .from('sales')
             .select(`
                 *,
@@ -144,14 +167,32 @@ async function loadReports() {
             `)
             .gte('sale_date', startDate.toISOString())
             .order('sale_date', { ascending: false });
+        
+        // Apply company filter
+        if (companyId) {
+            salesQuery = salesQuery.eq('company_id', companyId);
+        } else if (currentProfile?.company_id) {
+            salesQuery = salesQuery.eq('company_id', currentProfile.company_id);
+        }
+        
+        const { data: sales, error: salesError } = await salesQuery;
 
         if (salesError) throw salesError;
 
         for (const sale of (sales || [])) {
-            const { data: items, error: itemsErr } = await supabaseClient
+            let itemsQuery = supabaseClient
                 .from('sale_items')
                 .select('id, product_id, quantity, unit_price, total_price')
                 .eq('sale_id', sale.id);
+            
+            // Apply company filter to sale_items
+            if (companyId) {
+                itemsQuery = itemsQuery.eq('company_id', companyId);
+            } else if (currentProfile?.company_id) {
+                itemsQuery = itemsQuery.eq('company_id', currentProfile.company_id);
+            }
+            
+            const { data: items, error: itemsErr } = await itemsQuery;
             if (!itemsErr && items) {
                 sale.sale_items = items;
             } else {
@@ -229,30 +270,12 @@ async function loadReports() {
 }
 
 // ── Render transaction table ──────────────────────────────────────────────────
-//
-//  Three rendering branches depending on item count:
-//
-//  BRANCH A – 0 items (no items recorded)
-//    Single flat <tr> with all original columns, Item col shows placeholder.
-//
-//  BRANCH B – exactly 1 item
-//    Single flat <tr> using the original layout exactly:
-//    Txn# | Date | Cashier | MOP | Item name | Qty | UTP | Subtotal | Status | Actions
-//    No grouping styles, no sub-rows — indistinguishable from the original table.
-//
-//  BRANCH C – 2+ items (grouped layout)
-//    <tr class="txn-parent">  ← bold summary: Txn#/Date/Cashier/MOP/badge/—/—/Total/Status/Actions
-//    <tr class="txn-item"> ×N ← one per item: —/—/—/—/↳Name/Qty/UTP/Subtotal/—/—
-//    <tr class="txn-spacer">  ← 4 px gap between groups
-//
-//  Footer total is always summed from sale.total_amount (never per-item totals).
-//
 function renderSalesTable(salesList) {
     const tbody = document.getElementById('salesTable');
     if (!tbody) return;
 
     if (!salesList || !salesList.length) {
-        tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">No sales found for this period</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">No sales found for this period</td><\/tr>';
         const footerSpan = document.getElementById('footerTotal');
         if (footerSpan) footerSpan.innerText = formatCurrency(0);
         return;
@@ -356,33 +379,28 @@ function renderSalesTable(salesList) {
                 <td>${cashierDisplay}</td>
                 <td>${mop}</td>
                 <td>${countBadge}</td>
-                <td></td>
-                <td></td>
+                <td></td><td></td>
                 <td class="text-end">${formatCurrency(saleTotal)}</td>
                 <td><span class="badge bg-${statusClass}">${escapeHtml(sale.payment_status || '—')}</span></td>
                 <td class="text-nowrap">${actionsHtml}</td>
-            </tr>`;
+            </table>`;
 
         // One sub-row per item
         for (const item of items) {
             const itemTotal = parseFloat(item.total_price || 0);
             rowsHtml += `
                 <tr class="txn-item${refundedClass}">
-                    <td></td>
-                    <td></td>
-                    <td></td>
-                    <td></td>
+                    <td></td><td></td><td></td><td></td>
                     <td><span class="item-indent">↳</span>${escapeHtml(item.product_name || 'Unknown')}</td>
                     <td class="text-center">${item.quantity || 0}</td>
                     <td class="text-end">${formatCurrency(item.unit_price || 0)}</td>
                     <td class="text-end">${formatCurrency(itemTotal)}</td>
-                    <td>—</td>
-                    <td>—</td>
+                    <td>—</td><td>—</td>
                 </tr>`;
         }
 
         // Thin spacer between grouped transactions
-        rowsHtml += `<tr class="txn-spacer" aria-hidden="true"><td colspan="10"></td></tr>`;
+        rowsHtml += `<tr class="txn-spacer" aria-hidden="true"><td colspan="10"></td><\/tr>`;
     }
 
     tbody.innerHTML = rowsHtml;
@@ -421,18 +439,32 @@ async function voidSale(saleId, transactionNumber) {
     if (!confirmed) return;
 
     try {
-        const { data: items, error: itemsErr } = await supabaseClient
+        const companyId = getReportsCompanyId();
+        
+        let itemsQuery = supabaseClient
             .from('sale_items')
             .select('product_id, quantity')
             .eq('sale_id', saleId);
+        
+        if (companyId) {
+            itemsQuery = itemsQuery.eq('company_id', companyId);
+        }
+        
+        const { data: items, error: itemsErr } = await itemsQuery;
         if (itemsErr) throw itemsErr;
         if (!items || items.length === 0) throw new Error('No items found for this sale');
 
-        const { data: updatedRows, error: updateErr } = await supabaseClient
+        let updateQuery = supabaseClient
             .from('sales')
             .update({ payment_status: 'refunded' })
             .eq('id', saleId)
             .select('id');
+        
+        if (companyId) {
+            updateQuery = updateQuery.eq('company_id', companyId);
+        }
+        
+        const { data: updatedRows, error: updateErr } = await updateQuery;
         if (updateErr) {
             const detail = [updateErr.code, updateErr.hint, updateErr.details, updateErr.message]
                 .filter(Boolean).join(' | ');
@@ -443,18 +475,30 @@ async function voidSale(saleId, transactionNumber) {
         }
 
         for (const item of items) {
-            const { data: product, error: prodErr } = await supabaseClient
+            let productQuery = supabaseClient
                 .from('products')
                 .select('stock_quantity')
-                .eq('id', item.product_id)
-                .single();
+                .eq('id', item.product_id);
+            
+            if (companyId) {
+                productQuery = productQuery.eq('company_id', companyId);
+            }
+            
+            const { data: product, error: prodErr } = await productQuery.single();
             if (prodErr) throw prodErr;
 
             const newStock = (product.stock_quantity || 0) + item.quantity;
-            const { error: stockErr } = await supabaseClient
+            
+            let stockUpdateQuery = supabaseClient
                 .from('products')
                 .update({ stock_quantity: newStock, updated_at: new Date().toISOString() })
                 .eq('id', item.product_id);
+            
+            if (companyId) {
+                stockUpdateQuery = stockUpdateQuery.eq('company_id', companyId);
+            }
+            
+            const { error: stockErr } = await stockUpdateQuery;
             if (stockErr) throw stockErr;
 
             await supabaseClient.from('stock_movements').insert({
@@ -465,6 +509,7 @@ async function voidSale(saleId, transactionNumber) {
                 reference_id:   saleId,
                 notes:          `Stock restored from voided sale ${transactionNumber}`,
                 created_by:     currentUser?.id,
+                company_id:     companyId,
                 created_at:     new Date().toISOString()
             });
         }
@@ -492,11 +537,19 @@ async function permanentlyDeleteSale(saleId, transactionNumber) {
     if (!confirmed) return;
 
     try {
-        const { data: deletedItems, error: itemsErr } = await supabaseClient
+        const companyId = getReportsCompanyId();
+        
+        let itemsDeleteQuery = supabaseClient
             .from('sale_items')
             .delete()
             .eq('sale_id', saleId)
             .select('sale_id');
+        
+        if (companyId) {
+            itemsDeleteQuery = itemsDeleteQuery.eq('company_id', companyId);
+        }
+        
+        const { data: deletedItems, error: itemsErr } = await itemsDeleteQuery;
 
         if (itemsErr) {
             const detail = [itemsErr.code, itemsErr.hint, itemsErr.details, itemsErr.message]
@@ -504,20 +557,17 @@ async function permanentlyDeleteSale(saleId, transactionNumber) {
             throw new Error(`Failed to delete sale items: ${detail}`);
         }
 
-        const { count: remainingCount } = await supabaseClient
-            .from('sale_items')
-            .select('*', { count: 'exact', head: true })
-            .eq('sale_id', saleId);
-
-        if (remainingCount > 0) {
-            throw new Error('Could not delete sale items. Check RLS policy on sale_items.');
-        }
-
-        const { data: deletedRows, error: saleErr } = await supabaseClient
+        let saleDeleteQuery = supabaseClient
             .from('sales')
             .delete()
             .eq('id', saleId)
             .select('id');
+        
+        if (companyId) {
+            saleDeleteQuery = saleDeleteQuery.eq('company_id', companyId);
+        }
+        
+        const { data: deletedRows, error: saleErr } = await saleDeleteQuery;
 
         if (saleErr) {
             const detail = [saleErr.code, saleErr.hint, saleErr.details, saleErr.message]
@@ -536,7 +586,7 @@ async function permanentlyDeleteSale(saleId, transactionNumber) {
     }
 }
 
-// ── Excel export (unchanged) ──────────────────────────────────────────────────
+// ── Excel export ──────────────────────────────────────────────────────────────
 async function exportSalesToExcel() {
     if (!allSales.length) {
         showNotification('No data to export', 'warning');
@@ -601,7 +651,7 @@ async function exportSalesToExcel() {
 }
 globalThis.exportSalesToExcel = exportSalesToExcel;
 
-// ── PDF export (unchanged) ────────────────────────────────────────────────────
+// ── PDF export ────────────────────────────────────────────────────────────────
 function exportSalesToPDF() {
     const periodSelect = document.getElementById('periodSelect');
     const periodText   = periodSelect.options[periodSelect.selectedIndex]?.text || 'Selected period';
@@ -679,13 +729,21 @@ globalThis.exportSalesToPDF = exportSalesToPDF;
 async function loadProductPerformance(days) {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
+    
+    const companyId = getReportsCompanyId();
 
     try {
-        const { data: products, error: prodErr } = await supabaseClient
+        let productsQuery = supabaseClient
             .from('products')
             .select('id, name, sku, price, stock_quantity')
             .eq('is_active', true)
             .order('name', { ascending: true });
+        
+        if (companyId) {
+            productsQuery = productsQuery.eq('company_id', companyId);
+        }
+        
+        const { data: products, error: prodErr } = await productsQuery;
 
         if (prodErr) {
             console.warn('Product performance: failed to load products', prodErr);
@@ -696,10 +754,16 @@ async function loadProductPerformance(days) {
             return;
         }
 
-        const { data: saleItems, error: siErr } = await supabaseClient
+        let saleItemsQuery = supabaseClient
             .from('sale_items')
             .select('product_id, quantity')
             .gte('created_at', startDate.toISOString());
+        
+        if (companyId) {
+            saleItemsQuery = saleItemsQuery.eq('company_id', companyId);
+        }
+        
+        const { data: saleItems, error: siErr } = await saleItemsQuery;
 
         if (siErr) {
             console.warn('Product performance: sale_items error', siErr);

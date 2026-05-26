@@ -23,7 +23,7 @@ const PAGE_ACCESS = {
     'inventory.html':  ['admin', 'manager', 'inventory_clerk'],
     'reports.html':    ['admin', 'manager'],
     'users.html':      ['admin'],
-    'settings.html':   ['admin']
+    'settings.html':   ['admin', 'manager', 'cashier', 'inventory_clerk']
 };
 
 // ── Action permissions ─────────────────────────────────────────────────────────
@@ -61,6 +61,8 @@ const PERMISSIONS = {
 
     // Settings
     canEditSettings:            ['admin'],
+    canEditCompanySettings:     ['admin'],
+    canEditPersonalSettings:    ['admin', 'manager', 'cashier', 'inventory_clerk'],
 
     // Stock Movements
     canClearStockMovements:     ['admin'],   // NEW

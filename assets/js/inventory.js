@@ -9,6 +9,7 @@
  * ADDED: UOM (Unit of Measure) support
  * ADDED: Barcode and Category required validation
  * ADDED: "Product Code" label instead of "SKU"
+ * ADDED: Company ID filtering for multi-tenant isolation
  */
 
 'use strict';
@@ -42,6 +43,15 @@ function fmt(amount) {
 function showTableSpinner(tbodyId, cols) {
     const el = document.getElementById(tbodyId);
     if (el) el.innerHTML = `<tr><td colspan="${cols}" class="text-center py-4"><div class="spinner-border spinner-border-sm text-primary"></div></td></tr>`;
+}
+
+// Helper to get current company ID (returns null if not available)
+function getCompanyIdFilter() {
+    const companyId = typeof getCurrentCompanyId === 'function' ? getCurrentCompanyId() : null;
+    if (!companyId) {
+        console.warn('No company ID available for filtering');
+    }
+    return companyId;
 }
 
 // ============================================================
@@ -200,13 +210,17 @@ function setupPaginationControls() {
 }
 
 // ============================================================
-//  3. CATEGORIES MANAGEMENT
+//  3. CATEGORIES MANAGEMENT (with company filtering)
 // ============================================================
 
 async function loadCategories() {
+    const companyId = getCompanyIdFilter();
+    if (!companyId) return [];
+    
     const { data, error } = await supabaseClient
         .from('categories')
         .select('*')
+        .eq('company_id', companyId)
         .order('name');
 
     if (error) {
@@ -269,6 +283,12 @@ function openCategoryModal(id = null) {
 }
 
 async function saveCategory() {
+    const companyId = getCompanyIdFilter();
+    if (!companyId) {
+        showToast('Company not identified. Please refresh the page.', 'error');
+        return;
+    }
+    
     const id = document.getElementById('categoryId').value;
     const name = document.getElementById('catName').value.trim();
     const description = document.getElementById('catDesc').value.trim() || null;
@@ -278,6 +298,7 @@ async function saveCategory() {
         return;
     }
 
+    // Check for duplicate within the same company
     const duplicate = allCategories.some(cat =>
         cat.name.toLowerCase() === name.toLowerCase() && (id ? String(cat.id) !== String(id) : true)
     );
@@ -291,11 +312,12 @@ async function saveCategory() {
         result = await supabaseClient
             .from('categories')
             .update({ name, description })
-            .eq('id', id);
+            .eq('id', id)
+            .eq('company_id', companyId);
     } else {
         result = await supabaseClient
             .from('categories')
-            .insert({ name, description, is_active: true });
+            .insert({ name, description, is_active: true, company_id: companyId });
     }
 
     if (result.error) {
@@ -320,10 +342,14 @@ async function deleteCategory(id, name) {
         return;
     }
 
+    const companyId = getCompanyIdFilter();
+    if (!companyId) return;
+
     const { count, error: checkError } = await supabaseClient
         .from('products')
         .select('*', { count: 'exact', head: true })
         .eq('category_id', id)
+        .eq('company_id', companyId)
         .eq('is_active', true)
         .is('deleted_at', null);
 
@@ -344,7 +370,8 @@ async function deleteCategory(id, name) {
     const { error } = await supabaseClient
         .from('categories')
         .delete()
-        .eq('id', id);
+        .eq('id', id)
+        .eq('company_id', companyId);
 
     if (error) {
         const detail = [error.code, error.hint, error.details, error.message].filter(Boolean).join(' | ');
@@ -369,15 +396,23 @@ function refreshCategoryDependentUI() {
 }
 
 // ============================================================
-//  4. PRODUCTS – CRUD with soft delete & restore
+//  4. PRODUCTS – CRUD with soft delete & restore (with company filtering)
 // ============================================================
 
 async function loadProducts() {
     showTableSpinner('productsTable', 10);
+    
+    const companyId = getCompanyIdFilter();
+    if (!companyId) {
+        showToast('Company not identified. Please refresh the page.', 'error');
+        return;
+    }
+    
     await loadCategories();
     const { data: products, error: prodErr } = await supabaseClient
         .from('products')
         .select('*, categories(name)')
+        .eq('company_id', companyId)
         .eq('is_active', true)
         .is('deleted_at', null);
 
@@ -395,11 +430,15 @@ async function loadProducts() {
 }
 
 async function loadArchivedProducts() {
+    const companyId = getCompanyIdFilter();
+    if (!companyId) return;
+    
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
     const { data: archived, error } = await supabaseClient
         .from('products')
         .select('*, categories(name)')
+        .eq('company_id', companyId)
         .eq('is_active', false)
         .gte('deleted_at', sevenDaysAgo.toISOString())
         .order('deleted_at', { ascending: false });
@@ -458,7 +497,7 @@ function renderProductsTable(productsToRender = null) {
     if (!tbody) return;
     
     if (!data.length) {
-        tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">No products found</td></tr>';
+        tbody.innerHTML = '<td><td colspan="10" class="text-center text-muted py-4">No products found</td></tr>';
         return;
     }
     
@@ -480,8 +519,8 @@ function renderProductsTable(productsToRender = null) {
                     ${hasPermission('canEditProduct') ? `<button class="icon-btn icon-btn-edit" title="Edit" onclick="event.stopPropagation(); INV.openProductModal(${p.id})"><i class="fas fa-edit"></i></button>` : ''}
                     ${hasPermission('canAdjustStock') ? `<button class="icon-btn icon-btn-warn" title="Adjust Stock" onclick="event.stopPropagation(); INV.openAdjustModal(${p.id})"><i class="fas fa-warehouse"></i></button>` : ''}
                     ${hasPermission('canDeleteProduct') ? `<button class="icon-btn icon-btn-delete" title="Delete" onclick="event.stopPropagation(); INV.deleteProduct(${p.id})"><i class="fas fa-trash"></i></button>` : ''}
-                </td>
-            </tr>
+                 </td>
+             </tr>
         `;
     }).join('');
     
@@ -524,8 +563,8 @@ function renderArchivedProductsTable() {
                 <td class="text-nowrap">
                     ${hasPermission('canRestoreProduct') ? `<button class="icon-btn icon-btn-success" title="Restore" onclick="INV.restoreProduct(${p.id})"><i class="fas fa-trash-restore"></i></button>` : ''}
                     ${hasPermission('canPermanentlyDeleteProduct') ? `<button class="icon-btn icon-btn-danger" title="Permanently Delete" onclick="INV.permanentlyDeleteArchivedProduct(${p.id}, '${escapeHtml(p.name)}')"><i class="fas fa-skull-crossbones"></i></button>` : ''}
-                </td>
-            </tr>
+                 </td>
+             </tr>
         `;
     }).join('');
 }
@@ -566,6 +605,12 @@ function openProductModal(id = null) {
 }
 
 async function saveProduct() {
+    const companyId = getCompanyIdFilter();
+    if (!companyId) {
+        showToast('Company not identified. Please refresh the page.', 'error');
+        return;
+    }
+    
     const id = document.getElementById('productId').value;
     const name = document.getElementById('prodName').value.trim();
     const barcode = document.getElementById('prodBarcode').value.trim();
@@ -600,13 +645,14 @@ async function saveProduct() {
         reorder_point: parseInt(document.getElementById('prodReorder').value) || 5,
         category_id: categoryId,
         uom: uom,
+        company_id: companyId,
         is_active: true,
         deleted_at: null,
         updated_at: new Date().toISOString()
     };
     
     const result = id
-        ? await supabaseClient.from('products').update(data).eq('id', id)
+        ? await supabaseClient.from('products').update(data).eq('id', id).eq('company_id', companyId)
         : await supabaseClient.from('products').insert({ ...data, created_at: new Date().toISOString() });
     
     if (result.error) {
@@ -623,12 +669,16 @@ async function deleteProduct(id) {
         showToast('You do not have permission to delete products.', 'error');
         return;
     }
+    const companyId = getCompanyIdFilter();
+    if (!companyId) return;
+    
     const confirmed = await showConfirmationToast('Delete this product?', 10000, 'Delete');
     if (!confirmed) return;
     const { error } = await supabaseClient
         .from('products')
         .update({ is_active: false, deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-        .eq('id', id);
+        .eq('id', id)
+        .eq('company_id', companyId);
     if (error) {
         showToast(getUserFriendlyErrorMessage(error, 'Failed to delete product.'), 'error');
     } else {
@@ -643,12 +693,16 @@ async function restoreProduct(id) {
         showToast('You do not have permission to restore products.', 'error');
         return;
     }
+    const companyId = getCompanyIdFilter();
+    if (!companyId) return;
+    
     const confirmed = await showConfirmationToast('Restore this product to active inventory?', 8000, 'Restore');
     if (!confirmed) return;
     const { error } = await supabaseClient
         .from('products')
         .update({ is_active: true, deleted_at: null, updated_at: new Date().toISOString() })
-        .eq('id', id);
+        .eq('id', id)
+        .eq('company_id', companyId);
     if (error) {
         showToast(getUserFriendlyErrorMessage(error, 'Failed to restore product.'), 'error');
     } else {
@@ -659,13 +713,17 @@ async function restoreProduct(id) {
 }
 
 // ============================================================
-//  5. STOCK
+//  5. STOCK (with company filtering)
 // ============================================================
 async function loadStock() {
+    const companyId = getCompanyIdFilter();
+    if (!companyId) return;
+    
     showTableSpinner('stockTable', 7);
     const { data: products, error } = await supabaseClient
         .from('products')
         .select('id, sku, name, stock_quantity, reorder_point, uom')
+        .eq('company_id', companyId)
         .eq('is_active', true)
         .is('deleted_at', null)
         .order('name');
@@ -691,8 +749,8 @@ async function loadStock() {
                 <td>${isLow ? '<span class="badge bg-warning text-dark">Low Stock</span>' : '<span class="badge bg-success">OK</span>'}</td>
                 <td>
                     ${hasPermission('canAdjustStock') ? `<button class="icon-btn icon-btn-warn" title="Adjust Stock" onclick="INV.openAdjustModal(${p.id})"><i class="fas fa-edit"></i></button>` : ''}
-                </td>
-            </tr>
+                 </td>
+             </tr>
         `;
     }).join('');
 }
@@ -712,6 +770,9 @@ function openAdjustModal(productId = null) {
 }
 
 async function adjustStock() {
+    const companyId = getCompanyIdFilter();
+    if (!companyId) return;
+    
     const productId = document.getElementById('adjProductSelect').value;
     const qty = parseInt(document.getElementById('adjQty').value);
     const notes = document.getElementById('adjNotes').value.trim();
@@ -727,7 +788,8 @@ async function adjustStock() {
     const { error: updateErr } = await supabaseClient
         .from('products')
         .update({ stock_quantity: newStock, updated_at: new Date().toISOString() })
-        .eq('id', productId);
+        .eq('id', productId)
+        .eq('company_id', companyId);
     if (updateErr) {
         showToast(getUserFriendlyErrorMessage(updateErr, 'Failed to adjust stock.'), 'error');
         return;
@@ -737,7 +799,8 @@ async function adjustStock() {
         movement_type: 'ADJUSTMENT',
         quantity: qty,
         notes: notes || 'Manual adjustment',
-        created_by: currentUser?.id
+        created_by: currentUser?.id,
+        company_id: companyId
     });
     bootstrap.Modal.getInstance(document.getElementById('adjustModal')).hide();
     showToast(`Stock updated: ${product.name} → ${newStock} ${product.uom || 'pcs'}`, 'success');
@@ -746,12 +809,18 @@ async function adjustStock() {
 }
 
 // ============================================================
-//  6. SUPPLIERS – with permission checks
+//  6. SUPPLIERS – with permission checks and company filtering
 // ============================================================
 async function loadSuppliers() {
+    const companyId = getCompanyIdFilter();
+    if (!companyId) return;
+    
     showTableSpinner('suppliersTable', 6);
     const { data: suppliers, error } = await supabaseClient
-        .from('suppliers').select('*').order('name');
+        .from('suppliers')
+        .select('*')
+        .eq('company_id', companyId)
+        .order('name');
     if (error) {
         showToast(getUserFriendlyErrorMessage(error, 'Could not load suppliers.'), 'error');
         return;
@@ -773,8 +842,8 @@ async function loadSuppliers() {
                 ${hasPermission('canEditSupplier') ? `<button class="icon-btn icon-btn-edit" data-action="edit-supplier" data-id="${s.id}"><i class="fas fa-edit"></i></button>` : ''}
                 ${hasPermission('canDeleteSupplier') ? `<button class="icon-btn icon-btn-delete" data-action="delete-supplier" data-id="${s.id}"><i class="fas fa-trash"></i></button>` : ''}
                 ${hasPermission('canPermanentlyDeleteSupplier') ? `<button class="icon-btn icon-btn-danger" title="Permanently Delete" data-action="perm-delete-supplier" data-id="${s.id}" data-label="${escapeHtml(s.name)}"><i class="fas fa-skull-crossbones"></i></button>` : ''}
-            </td>
-        </tr>
+             </td>
+          </tr>
     `).join('');
 }
 
@@ -810,6 +879,12 @@ function openSupplierModal(id = null) {
 }
 
 async function saveSupplier() {
+    const companyId = getCompanyIdFilter();
+    if (!companyId) {
+        showToast('Company not identified. Please refresh the page.', 'error');
+        return;
+    }
+    
     const id = document.getElementById('supplierId').value;
     const name = document.getElementById('suppName').value.trim();
     if (!name) { showToast('Supplier name is required', 'warning'); return; }
@@ -819,11 +894,12 @@ async function saveSupplier() {
         email: document.getElementById('suppEmail').value.trim() || null,
         phone: document.getElementById('suppPhone').value.trim() || null,
         address: document.getElementById('suppAddress').value.trim() || null,
+        company_id: companyId,
         is_active: true,
         updated_at: new Date().toISOString()
     };
     const result = id
-        ? await supabaseClient.from('suppliers').update(data).eq('id', id)
+        ? await supabaseClient.from('suppliers').update(data).eq('id', id).eq('company_id', companyId)
         : await supabaseClient.from('suppliers').insert({ ...data, created_at: new Date().toISOString() });
     if (result.error) {
         showToast(getUserFriendlyErrorMessage(result.error, 'Failed to save supplier.'), 'error');
@@ -839,10 +915,16 @@ async function deleteSupplier(id) {
         showToast('You do not have permission to delete suppliers.', 'error');
         return;
     }
+    const companyId = getCompanyIdFilter();
+    if (!companyId) return;
+    
     const confirmed = await showConfirmationToast('Delete this supplier? This action cannot be undone.', 8000, 'Delete');
     if (!confirmed) return;
     const { error } = await supabaseClient
-        .from('suppliers').update({ is_active: false }).eq('id', id);
+        .from('suppliers')
+        .update({ is_active: false })
+        .eq('id', id)
+        .eq('company_id', companyId);
     if (error) {
         showToast(getUserFriendlyErrorMessage(error, 'Failed to delete supplier.'), 'error');
     } else {
@@ -852,14 +934,18 @@ async function deleteSupplier(id) {
 }
 
 // ============================================================
-//  7. PURCHASE ORDERS – with permission checks
+//  7. PURCHASE ORDERS – with permission checks and company filtering
 // ============================================================
 async function loadPOs() {
+    const companyId = getCompanyIdFilter();
+    if (!companyId) return;
+    
     showTableSpinner('poTable', 7);
     if (!allSuppliers.length) await loadSuppliers();
     const { data: pos, error } = await supabaseClient
         .from('purchase_orders')
         .select('*')
+        .eq('company_id', companyId)
         .order('order_date', { ascending: false });
     if (error) {
         showToast(getUserFriendlyErrorMessage(error, 'Could not load purchase orders.'), 'error');
@@ -886,8 +972,8 @@ async function loadPOs() {
                     ${hasPermission('canMarkPOReceived') && po.status !== 'RECEIVED' && po.status !== 'CANCELLED' ? `<button class="icon-btn icon-btn-success" title="Mark Received" onclick="INV.markPOReceived(${po.id})"><i class="fas fa-check"></i></button>` : ''}
                     ${hasPermission('canCancelPO') && po.status !== 'RECEIVED' && po.status !== 'CANCELLED' ? `<button class="icon-btn icon-btn-delete" title="Cancel" onclick="INV.cancelPO(${po.id})"><i class="fas fa-times"></i></button>` : ''}
                     ${hasPermission('canPermanentlyDeletePO') ? `<button class="icon-btn icon-btn-danger" title="Permanently Delete" onclick="INV.permanentlyDeletePO(${po.id}, '${escapeHtml(po.po_number)}')"><i class="fas fa-skull-crossbones"></i></button>` : ''}
-                </td>
-            </tr>
+                 </td>
+             </tr>
         `;
     }).join('');
 }
@@ -920,6 +1006,12 @@ async function openPOModal() {
 }
 
 async function savePO() {
+    const companyId = getCompanyIdFilter();
+    if (!companyId) {
+        showToast('Company not identified. Please refresh the page.', 'error');
+        return;
+    }
+    
     const poNumber = document.getElementById('poNumber').value.trim();
     const supplierId = parseInt(document.getElementById('poSupplier').value);
     const total = parseFloat(document.getElementById('poTotal').value) || 0;
@@ -939,6 +1031,7 @@ async function savePO() {
         notes,
         status: 'PENDING',
         created_by: currentUser?.id,
+        company_id: companyId,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
     });
@@ -956,12 +1049,16 @@ async function markPOReceived(id) {
         showToast('You do not have permission to mark purchase orders as received.', 'error');
         return;
     }
+    const companyId = getCompanyIdFilter();
+    if (!companyId) return;
+    
     const confirmed = await showConfirmationToast('Mark this purchase order as received?', 8000, 'Mark Received');
     if (!confirmed) return;
     const { error } = await supabaseClient
         .from('purchase_orders')
         .update({ status: 'RECEIVED', received_date: new Date().toISOString().split('T')[0], updated_at: new Date().toISOString() })
-        .eq('id', id);
+        .eq('id', id)
+        .eq('company_id', companyId);
     if (error) {
         showToast(getUserFriendlyErrorMessage(error, 'Failed to mark PO as received.'), 'error');
     } else {
@@ -975,12 +1072,16 @@ async function cancelPO(id) {
         showToast('You do not have permission to cancel purchase orders.', 'error');
         return;
     }
+    const companyId = getCompanyIdFilter();
+    if (!companyId) return;
+    
     const confirmed = await showConfirmationToast('Cancel this purchase order?', 8000, 'Cancel PO');
     if (!confirmed) return;
     const { error } = await supabaseClient
         .from('purchase_orders')
         .update({ status: 'CANCELLED', updated_at: new Date().toISOString() })
-        .eq('id', id);
+        .eq('id', id)
+        .eq('company_id', companyId);
     if (error) {
         showToast(getUserFriendlyErrorMessage(error, 'Failed to cancel purchase order.'), 'error');
     } else {
@@ -990,14 +1091,18 @@ async function cancelPO(id) {
 }
 
 // ============================================================
-//  8. STOCK MOVEMENTS (UPDATED with VOID_RESTORE mapping)
+//  8. STOCK MOVEMENTS (with company filtering)
 // ============================================================
 async function loadMovements() {
+    const companyId = getCompanyIdFilter();
+    if (!companyId) return;
+    
     showTableSpinner('movementsTable', 6);
 
     const { data: movements, error } = await supabaseClient
         .from('stock_movements')
         .select('*, products(name)')
+        .eq('company_id', companyId)
         .order('created_at', { ascending: false })
         .limit(100);
 
@@ -1049,6 +1154,9 @@ async function clearAllMovements() {
         showToast('You do not have permission to clear stock movements.', 'error');
         return;
     }
+    
+    const companyId = getCompanyIdFilter();
+    if (!companyId) return;
 
     const confirmed = await showConfirmationToast(
         '⚠️ PERMANENT ACTION: Delete ALL stock movement records? This cannot be undone.',
@@ -1061,7 +1169,7 @@ async function clearAllMovements() {
         const { error } = await supabaseClient
             .from('stock_movements')
             .delete()
-            .neq('id', 0);
+            .eq('company_id', companyId);
 
         if (error) throw error;
 
@@ -1167,7 +1275,7 @@ globalThis.INV = {
 };
 
 // ============================================================
-//  12. EXCEL EXPORT
+//  12. EXCEL EXPORT (with company context preserved)
 // ============================================================
 async function exportInventoryToExcel() {
     await Promise.all([loadProducts(), loadStock(), loadSuppliers(), loadPOs(), loadMovements()]);

@@ -223,11 +223,30 @@ async function permanentDeleteRecord(tableName, recordId, recordName = 'this rec
 }
 
 // ============================================================
-//  SETTINGS / CURRENCY / DATE HELPERS
+//  SETTINGS / CURRENCY / DATE HELPERS (with company isolation)
 // ============================================================
 
+/**
+ * Fetch settings for the current company
+ * FIXED: Added company_id filter for multi-tenant isolation
+ */
 async function fetchSettings() {
-    const { data } = await supabaseClient.from('settings').select('*');
+    // Get current company ID
+    let companyId = null;
+    if (typeof getCurrentCompanyId === 'function') {
+        companyId = getCurrentCompanyId();
+    } else if (currentProfile && currentProfile.company_id) {
+        companyId = currentProfile.company_id;
+    }
+    
+    let query = supabaseClient.from('settings').select('*');
+    
+    // Apply company filter if available
+    if (companyId) {
+        query = query.eq('company_id', companyId);
+    }
+    
+    const { data } = await query;
     const settings = {};
     data?.forEach(s => { settings[s.key] = s.value; });
     return settings;

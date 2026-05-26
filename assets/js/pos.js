@@ -49,6 +49,18 @@ const bankLogos = {
     other:       { icon: 'fas fa-credit-card', name: 'Other Card', color: '#6c757d' }
 };
 
+// Helper to get current company ID
+function getPOSCompanyId() {
+    if (typeof getCurrentCompanyId === 'function') {
+        const id = getCurrentCompanyId();
+        if (id) return id;
+    }
+    if (currentProfile && currentProfile.company_id) {
+        return currentProfile.company_id;
+    }
+    return null;
+}
+
 // ---------------------------------------------------------------------------
 // PHONE INPUT MODAL – Clean, Numeric-Only Design
 // ---------------------------------------------------------------------------
@@ -396,19 +408,36 @@ async function loadSettings() {
 }
 
 // ---------------------------------------------------------------------------
-// DATA LOADING
+// DATA LOADING (with company isolation)
 // ---------------------------------------------------------------------------
 async function loadPOSData() {
     await loadSettings();
-    const { data: prodData } = await supabaseClient
+    
+    const companyId = getPOSCompanyId();
+    
+    // Build product query with company filter
+    let productQuery = supabaseClient
         .from('products')
         .select('*, categories(name, id)')
         .eq('is_active', true);
-    products = prodData || [];
-    const { data: catData } = await supabaseClient
+    
+    let categoryQuery = supabaseClient
         .from('categories')
         .select('*')
         .eq('is_active', true);
+    
+    if (companyId) {
+        productQuery = productQuery.eq('company_id', companyId);
+        categoryQuery = categoryQuery.eq('company_id', companyId);
+    } else if (currentProfile?.company_id) {
+        productQuery = productQuery.eq('company_id', currentProfile.company_id);
+        categoryQuery = categoryQuery.eq('company_id', currentProfile.company_id);
+    }
+    
+    const { data: prodData } = await productQuery;
+    products = prodData || [];
+    
+    const { data: catData } = await categoryQuery;
     categories = catData || [];
     
     buildCategoryColorMap();
@@ -791,29 +820,44 @@ function setupBarcodeScanner() {
 }
 
 // ---------------------------------------------------------------------------
-// COMPLETE SALE
+// COMPLETE SALE - UPDATED WITH COMPANY ID
 // ---------------------------------------------------------------------------
 async function completeSale() {
     if (!cart.length) {
         showNotification('Cart is empty', 'error');
         return;
     }
+    
     const method = document.getElementById('paymentMethod').value;
-
     const totalText = document.getElementById('total').innerText;
     const total = parseFloat(totalText.replace(/[^0-9.]+/g, '')) || 0;
     const discount = parseFloat(document.getElementById('discount').value) || 0;
-    const items = cart.map(i => ({ product_id: i.id, quantity: i.quantity }));
+    
+    // Prepare items array for RPC
+    const items = cart.map(i => ({ 
+        product_id: i.id, 
+        quantity: i.quantity,
+        price: i.price
+    }));
+    
+    const companyId = getPOSCompanyId();
+    if (!companyId) {
+        showNotification('Company not found. Please log in again.', 'error');
+        return;
+    }
 
+    // Mobile Payment (M-Pesa)
     if (method === 'mobile') {
         const phone = await showPhoneInputModal();
         if (!phone) return;
 
+        // Create pending sale
         const { data: saleData, error: saleError } = await supabaseClient.rpc('process_sale_pending', {
             p_cashier_id: currentUser.id,
             p_items: items,
             p_discount: discount,
-            p_payment_method: method
+            p_payment_method: method,
+            p_company_id: companyId
         });
 
         if (saleError) {
@@ -824,6 +868,7 @@ async function completeSale() {
         const saleId = saleData.id;
         const transactionNumber = saleData.transaction_number;
 
+        // Initiate M-Pesa payment
         const { data: mpesaRes, error: mpesaError } = await supabaseClient.functions.invoke('initiate-mpesa-payment', {
             body: {
                 sale_id: saleId,
@@ -840,6 +885,7 @@ async function completeSale() {
 
         showNotification('STK push sent. Please check your phone and enter PIN.', 'info');
 
+        // Poll for payment confirmation
         if (paymentCheckInterval) clearInterval(paymentCheckInterval);
         if (paymentPollTimeout) clearTimeout(paymentPollTimeout);
 
@@ -901,6 +947,7 @@ async function completeSale() {
         return;
     }
 
+    // Card Payment
     if (method === 'card') {
         const cardDetails = await showCardPaymentModal();
         if (!cardDetails) return;
@@ -913,6 +960,7 @@ async function completeSale() {
                 p_items: items,
                 p_discount: discount,
                 p_payment_method: 'card',
+                p_company_id: companyId
             });
 
             if (error) {
@@ -931,17 +979,20 @@ async function completeSale() {
         return;
     }
 
+    // Cash Payment
     const tendered = parseFloat(document.getElementById('amountTendered')?.value) || 0;
     if (method === 'cash' && tendered < total) {
         showNotification(`Insufficient payment. Please enter at least ${formatCurrency(total)}.`, 'error');
         return;
     }
 
+    // Process cash or other immediate payment methods
     const { data, error } = await supabaseClient.rpc('process_sale', {
         p_cashier_id: currentUser.id,
         p_items: items,
         p_discount: discount,
         p_payment_method: method,
+        p_company_id: companyId
     });
 
     if (error) {
@@ -1089,7 +1140,7 @@ function generateReceipt(transactionNumber = null, snapshot = null, amountTender
 }
 
 // ---------------------------------------------------------------------------
-// EMAIL / SMS FROM MODAL (FIXED)
+// EMAIL / SMS FROM MODAL
 // ---------------------------------------------------------------------------
 
 async function sendReceiptEmailFromModal() {

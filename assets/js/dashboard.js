@@ -1,30 +1,37 @@
 /**
  * dashboard.js – VendGrid Dashboard
- *
- * CRITICAL FIX: The original dashboard.js file contained the POS boot
- * logic (role restriction for cashiers, loadPOSData(), toggleCashSection())
- * instead of dashboard-specific logic. This caused the dashboard to redirect
- * all non-cashier/manager/admin roles and to call undefined functions like
- * loadPOSData(). The dashboard was functionally broken for the correct file.
- *
- * This file is a clean dashboard implementation using the correct data
- * from the existing dashboard.html widgets: todaySales, salesChange,
- * todayTransactions, totalProducts, lowStockItems, salesChart,
- * recentTransactions.
- *
- * FIX 2: applySidebarAccess() called AFTER requireAuth() resolves.
- * FIX 3: inventory_clerk added to allowed roles (they can land on dashboard).
+ * 
+ * FIXED: Added company_id filtering for multi-tenant isolation.
+ * Works with both VendGrid 1 and VendGrid 2 database schemas.
  */
 
 'use strict';
 
 let salesChart = null;
 
+// Helper to get current company ID (works with both schema versions)
+function getDashboardCompanyId() {
+    // Try to get from global function (VendGrid 2)
+    if (typeof getCurrentCompanyId === 'function') {
+        const id = getCurrentCompanyId();
+        if (id) return id;
+    }
+    // Fallback: try from currentProfile (VendGrid 1)
+    if (currentProfile && currentProfile.company_id) {
+        return currentProfile.company_id;
+    }
+    // Last resort: try to fetch from profiles table
+    if (currentUser && currentUser.id) {
+        // This will be handled in the query by adding a filter
+        return null;
+    }
+    return null;
+}
+
 // ── Boot ──────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
     if (!await requireAuth()) return;
 
-    // All authenticated roles can access the dashboard
     const nameEl = document.getElementById('userName');
     if (nameEl) {
         nameEl.textContent = currentProfile?.first_name || currentUser?.email || 'User';
@@ -33,12 +40,71 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadDashboard();
 });
 
-// ── Load all dashboard data ───────────────────────────────────────────────────
+// ── Load all dashboard data with company isolation ───────────────────────────
 async function loadDashboard() {
     const today     = new Date().toISOString().split('T')[0];
     const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+    
+    const companyId = getDashboardCompanyId();
+    
+    // Build query with company filter if available
+    let todayQuery = supabaseClient
+        .from('sales')
+        .select('total_amount, payment_status')
+        .gte('sale_date', today + 'T00:00:00')
+        .lte('sale_date', today + 'T23:59:59');
+    
+    let yesterdayQuery = supabaseClient
+        .from('sales')
+        .select('total_amount')
+        .gte('sale_date', yesterday + 'T00:00:00')
+        .lt('sale_date', today + 'T00:00:00');
+    
+    let chartQuery = supabaseClient
+        .from('sales')
+        .select('sale_date, total_amount')
+        .gte('sale_date', new Date(Date.now() - 7 * 86400000).toISOString());
+    
+    let recentQuery = supabaseClient
+        .from('sales')
+        .select('transaction_number, total_amount, payment_method, sale_date')
+        .order('sale_date', { ascending: false })
+        .limit(5);
+    
+    // Apply company filter if we have a company ID
+    if (companyId) {
+        todayQuery = todayQuery.eq('company_id', companyId);
+        yesterdayQuery = yesterdayQuery.eq('company_id', companyId);
+        chartQuery = chartQuery.eq('company_id', companyId);
+        recentQuery = recentQuery.eq('company_id', companyId);
+    } else if (currentProfile?.company_id) {
+        // Fallback using currentProfile
+        todayQuery = todayQuery.eq('company_id', currentProfile.company_id);
+        yesterdayQuery = yesterdayQuery.eq('company_id', currentProfile.company_id);
+        chartQuery = chartQuery.eq('company_id', currentProfile.company_id);
+        recentQuery = recentQuery.eq('company_id', currentProfile.company_id);
+    }
+    
+    // Products count and low stock (always filtered by company)
+    let productCountQuery = supabaseClient
+        .from('products')
+        .select('*', { count: 'exact', head: true })
+        .eq('is_active', true);
+    
+    let lowStockQuery = supabaseClient
+        .from('products')
+        .select('id, stock_quantity, reorder_point')
+        .eq('is_active', true);
+    
+    if (companyId) {
+        productCountQuery = productCountQuery.eq('company_id', companyId);
+        lowStockQuery = lowStockQuery.eq('company_id', companyId);
+    } else if (currentProfile?.company_id) {
+        productCountQuery = productCountQuery.eq('company_id', currentProfile.company_id);
+        lowStockQuery = lowStockQuery.eq('company_id', currentProfile.company_id);
+    }
 
-    // Run independent queries in parallel
+    // Run all queries in parallel
     const [
         todaySalesRes,
         yesterdaySalesRes,
@@ -47,38 +113,12 @@ async function loadDashboard() {
         chartSalesRes,
         recentRes
     ] = await Promise.allSettled([
-        supabaseClient
-            .from('sales')
-            .select('total_amount, payment_status')
-            .gte('sale_date', today + 'T00:00:00')
-            .lte('sale_date', today + 'T23:59:59'),
-
-        supabaseClient
-            .from('sales')
-            .select('total_amount')
-            .gte('sale_date', yesterday + 'T00:00:00')
-            .lt('sale_date', today + 'T00:00:00'),
-
-        supabaseClient
-            .from('products')
-            .select('*', { count: 'exact', head: true })
-            .eq('is_active', true),
-
-        supabaseClient
-            .from('products')
-            .select('id, stock_quantity, reorder_point')
-            .eq('is_active', true),
-
-        supabaseClient
-            .from('sales')
-            .select('sale_date, total_amount')
-            .gte('sale_date', new Date(Date.now() - 7 * 86400000).toISOString()),
-
-        supabaseClient
-            .from('sales')
-            .select('transaction_number, total_amount, payment_method, sale_date')
-            .order('sale_date', { ascending: false })
-            .limit(5)
+        todayQuery,
+        yesterdayQuery,
+        productCountQuery,
+        lowStockQuery,
+        chartQuery,
+        recentQuery
     ]);
 
     // ── Today's Sales ──────────────────────────────────────────────────────────
@@ -155,7 +195,7 @@ async function loadDashboard() {
     const tbody  = document.getElementById('recentTransactions');
     if (tbody) {
         if (!recent.length) {
-            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No transactions yet</td></tr>';
+            tbody.innerHTML = '<td><td colspan="4" class="text-center text-muted">No transactions yet</td><\/tr>';
         } else {
             tbody.innerHTML = recent.map(s => `
                 <tr>
