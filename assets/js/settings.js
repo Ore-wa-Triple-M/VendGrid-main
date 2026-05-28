@@ -70,22 +70,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Theme buttons
-    document.getElementById('lightModeBtn')?.addEventListener('click', () => globalThis.themeManager?.setTheme('light'));
-    document.getElementById('darkModeBtn')?.addEventListener('click',  () => globalThis.themeManager?.setTheme('dark'));
-
-    globalThis.addEventListener('themeChanged', (e) => {
-        const isDark = e.detail.theme === 'dark';
-        document.getElementById('lightModeBtn')?.classList.toggle('active', !isDark);
-        document.getElementById('darkModeBtn')?.classList.toggle('active',  isDark);
-    });
-
-    if (globalThis.themeManager) {
-        const isDark = globalThis.themeManager.getCurrent() === 'dark';
-        document.getElementById('lightModeBtn')?.classList.toggle('active', !isDark);
-        document.getElementById('darkModeBtn')?.classList.toggle('active',  isDark);
-    }
-
+  
     loadSettings();
 });
 
