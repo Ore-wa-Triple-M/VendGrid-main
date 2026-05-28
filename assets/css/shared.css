@@ -1,4 +1,4 @@
-/* shared.css – VendGrid Common Styles (updated for better dark mode support) */
+/* shared.css – VendGrid Common Styles (using CSS variables) */
 
 /* =====================================================================
    AUTH-LOADING GATE – prevents permission flicker (FOUC)
@@ -27,7 +27,6 @@ body {
     color: var(--text-primary);
     background-color: var(--bg-body);
     overflow-x: hidden;
-    transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 /* ===== Sidebar ===== */
@@ -44,7 +43,7 @@ body {
     white-space: nowrap;
     display: flex;
     flex-direction: column;
-    transition: width 0.25s ease-in-out, transform 0.25s ease-in-out, background-color 0.2s ease;
+    transition: width 0.25s ease-in-out, transform 0.25s ease-in-out;
     will-change: width, transform;
     border-radius: 10px;
 }
@@ -157,16 +156,15 @@ body {
     left: 76px;
     top: 50%;
     transform: translateY(-50%);
-    background: var(--bg-card);
-    color: var(--text-primary);
+    background: #1a1a2e;
+    color: #fff;
     padding: 6px 12px;
     border-radius: 6px;
     font-size: 0.8rem;
     white-space: nowrap;
     z-index: 200;
-    box-shadow: var(--widget-shadow);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
     pointer-events: none;
-    border: 1px solid var(--border-color);
 }
 
 /* Main content & POS container – single source of truth */
@@ -272,8 +270,20 @@ h1, h2, h3, h4, h5, h6 {
 .btn:hover {
     transform: translateY(-1px);
 }
-.btn:active {
-    transform: translateY(0);
+.btn-primary {
+    background: var(--btn-primary-bg);
+    border: none;
+}
+.btn-primary:hover {
+    background: var(--btn-primary-hover);
+}
+.btn-outline-primary {
+    border-color: var(--link-color);
+    color: var(--link-color);
+}
+.btn-outline-primary:hover {
+    background-color: var(--link-color);
+    color: white;
 }
 
 /* ===== Utility Classes ===== */
@@ -300,18 +310,16 @@ h1, h2, h3, h4, h5, h6 {
 /* ===== Custom Scrollbar ===== */
 ::-webkit-scrollbar {
     width: 8px;
-    height: 8px;
 }
 ::-webkit-scrollbar-track {
-    background: var(--bg-hover);
-    border-radius: 4px;
+    background: var(--bg-table-stripe);
 }
 ::-webkit-scrollbar-thumb {
-    background: var(--accent);
+    background: var(--link-color);
     border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-    background: var(--accent-light);
+    background: var(--link-hover);
 }
 
 /* ===== Cards & Widgets ===== */
@@ -321,8 +329,7 @@ h1, h2, h3, h4, h5, h6 {
     background: var(--widget-bg);
     border-radius: 10px;
     box-shadow: var(--widget-shadow);
-    border: 1px solid var(--widget-border);
-    transition: box-shadow 0.2s ease, transform 0.2s ease;
+    border: 1px solid var(--border-color);
 }
 .stat-card h3,
 .widget-content .metric-value .amount {
@@ -330,9 +337,6 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ===== Tables ===== */
-.table {
-    background-color: transparent;
-}
 .table th {
     background-color: var(--table-header-bg);
     color: var(--table-header-color);
@@ -340,15 +344,15 @@ h1, h2, h3, h4, h5, h6 {
 }
 .table td {
     border-color: var(--table-border);
-    color: var(--table-text);
+    color: var(--text-primary);
 }
 .table-hover tbody tr:hover {
-    background-color: var(--table-row-hover);
+    background-color: var(--bg-hover);
 }
 
 /* ===== Modal ===== */
 .modal-content {
-    background: var(--modal-bg);
+    background: var(--bg-modal);
     border-color: var(--border-color);
 }
 .modal-header,
@@ -373,14 +377,18 @@ h1, h2, h3, h4, h5, h6 {
     min-width: 280px;
     padding: 12px 16px;
     border-radius: 8px;
+    color: #fff;
     font-size: 0.9rem;
     display: flex;
     align-items: center;
     gap: 10px;
     box-shadow: 0 4px 12px rgba(0,0,0,0.15);
     animation: slideIn 0.25s ease;
-    backdrop-filter: blur(8px);
 }
+.vg-toast.success { background: var(--toast-success-bg); }
+.vg-toast.error   { background: var(--toast-error-bg); }
+.vg-toast.warning { background: var(--toast-warning-bg); color: #000; }
+.vg-toast.info    { background: var(--toast-info-bg); color: #000; }
 @keyframes slideIn {
     from { transform: translateX(100%); opacity: 0; }
     to   { transform: translateX(0);    opacity: 1; }
@@ -397,7 +405,7 @@ h1, h2, h3, h4, h5, h6 {
     padding: 1rem;
     opacity: 0;
     transition: opacity 0.2s ease;
-    backdrop-filter: blur(4px);
+    backdrop-filter: blur(2px);
 }
 .vg-confirm-overlay--visible { opacity: 1; }
 .vg-confirm-dialog {
@@ -416,13 +424,13 @@ h1, h2, h3, h4, h5, h6 {
     width: 56px;
     height: 56px;
     border-radius: 50%;
-    background: var(--confirm-icon-bg);
+    background: var(--toast-warning-bg);
     display: flex;
     align-items: center;
     justify-content: center;
     margin: 0 auto 1.1rem;
 }
-.vg-confirm-icon i { font-size: 1.6rem; color: var(--toast-warning-color); }
+.vg-confirm-icon i { font-size: 1.6rem; color: #e6990b; }
 .vg-confirm-message {
     font-size: 0.97rem;
     color: var(--text-primary);
@@ -446,12 +454,12 @@ h1, h2, h3, h4, h5, h6 {
 }
 .vg-confirm-btn--cancel {
     background: var(--confirm-cancel-bg);
-    color: var(--confirm-cancel-text);
+    color: var(--text-secondary);
 }
 .vg-confirm-btn--cancel:hover { background: var(--confirm-cancel-hover); }
 .vg-confirm-btn--confirm {
     background: var(--confirm-confirm-bg);
-    color: var(--confirm-confirm-text);
+    color: #fff;
 }
 .vg-confirm-btn--confirm:hover { background: var(--confirm-confirm-hover); }
 
@@ -589,43 +597,43 @@ h1, h2, h3, h4, h5, h6 {
     transition: background 0.15s, color 0.15s;
 }
 .icon-btn-edit {
-    color: var(--link-color);
-    border-color: var(--link-color);
+    color: #0d6efd;
+    border-color: #0d6efd;
 }
 .icon-btn-edit:hover {
-    background: var(--link-color);
+    background: #0d6efd;
     color: #fff;
 }
 .icon-btn-delete {
-    color: #f56565;
-    border-color: #f56565;
+    color: #dc3545;
+    border-color: #dc3545;
 }
 .icon-btn-delete:hover {
-    background: #f56565;
+    background: #dc3545;
     color: #fff;
 }
 .icon-btn-warn {
-    color: #ecc94b;
-    border-color: #ecc94b;
+    color: #fd7e14;
+    border-color: #fd7e14;
 }
 .icon-btn-warn:hover {
-    background: #ecc94b;
-    color: #000;
+    background: #fd7e14;
+    color: #fff;
 }
 .icon-btn-success {
-    color: #48bb78;
-    border-color: #48bb78;
+    color: #198754;
+    border-color: #198754;
 }
 .icon-btn-success:hover {
-    background: #48bb78;
+    background: #198754;
     color: #fff;
 }
 .icon-btn-danger {
-    color: #f56565;
-    border-color: #f56565;
+    color: #dc3545;
+    border-color: #dc3545;
 }
 .icon-btn-danger:hover {
-    background: #f56565;
+    background: #dc3545;
     color: #fff;
 }
 
